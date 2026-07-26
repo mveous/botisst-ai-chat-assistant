@@ -1147,7 +1147,7 @@ body.toplevel_page_baca #baca-admin-root {
     background: #ffffff;
     border: 1px solid #e5e7eb;
     border-radius: 10px;
-    overflow: hidden;
+    position: relative;
 }
 
 .baca-kb-card__header {
@@ -2822,6 +2822,93 @@ input:checked + .baca-toggle-slider:before {
     font-size: 0.875rem;
     line-height: 1.5;
     color: var(--baca-text-muted);
+}
+
+.baca-info-tooltip-wrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.baca-info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    border: 1.5px solid #6b7280;
+    background: transparent;
+    color: #4b5563;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: inherit;
+    font-style: normal;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 6px;
+    transition: all 0.15s ease;
+}
+
+.baca-info-btn:hover,
+.baca-info-btn:focus {
+    border-color: #2563eb;
+    color: #2563eb;
+    background: #eff6ff;
+}
+
+.baca-info-tooltip {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #1e293b;
+    color: #ffffff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.4;
+    white-space: normal;
+    width: max-content;
+    max-width: 260px;
+    z-index: 999;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    pointer-events: none;
+}
+
+.baca-info-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 5px;
+    border-style: solid;
+    border-color: #1e293b transparent transparent transparent;
+}
+
+.baca-info-tooltip-wrapper:hover .baca-info-tooltip,
+.baca-info-btn:focus + .baca-info-tooltip {
+    visibility: visible;
+    opacity: 1;
+}
+
+.baca-kb-card__header .baca-info-tooltip,
+.baca-info-tooltip--bottom {
+    top: calc(100% + 8px);
+    bottom: auto;
+}
+
+.baca-kb-card__header .baca-info-tooltip::after,
+.baca-info-tooltip--bottom::after {
+    top: auto;
+    bottom: 100%;
+    border-color: transparent transparent #1e293b transparent;
 }
 
 .baca-wizard-done {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
 const PROVIDERS = {
@@ -134,6 +134,8 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 			showNotice(__('An API key is required to continue.', 'botisst-ai-chat-assistant'), 'error');
 			return;
 		}
+
+		setEmbeddingProvider(selectedProvider);
 
 		if (settings?.api_keys?.[selectedProvider] && apiKey === settings.api_keys[selectedProvider]) {
 			if (settings?.chatbot?.default_provider === selectedProvider) {
@@ -356,6 +358,7 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 						const newProvider = e.target.value;
 						setSelectedProvider(newProvider);
 						setApiKey(settings?.api_keys?.[newProvider] || '');
+						setEmbeddingProvider(newProvider);
 					}}
 				>
 					{Object.entries(PROVIDERS).map(([id, provider]) => (
@@ -422,9 +425,29 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 				</div>
 
 				<div className="baca-bot-field" style={{ marginTop: '1.5rem' }}>
-					<label htmlFor="wizard_embedding_provider">
-						{__('Embedding Provider', 'botisst-ai-chat-assistant')}
-					</label>
+					<div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.375rem' }}>
+						<label htmlFor="wizard_embedding_provider" style={{ marginBottom: 0 }}>
+							{__('Embedding Provider', 'botisst-ai-chat-assistant')}
+						</label>
+						{vectorDb === 'pinecone' && (
+							<div className="baca-info-tooltip-wrapper">
+								<button
+									type="button"
+									className="baca-info-btn"
+									aria-label={__('Dimensions info', 'botisst-ai-chat-assistant')}
+								>
+									i
+								</button>
+								<div className="baca-info-tooltip">
+									{sprintf(
+										__('Because you selected %1$s, your Pinecone index must be created with exactly %2$d dimensions.', 'botisst-ai-chat-assistant'),
+										embeddingProvider === 'google' ? __('Google Gemini (gemini-embedding-001)', 'botisst-ai-chat-assistant') : __('OpenAI (text-embedding-3-small)', 'botisst-ai-chat-assistant'),
+										embeddingProvider === 'google' ? 768 : 1536
+									)}
+								</div>
+							</div>
+						)}
+					</div>
 					<select
 						id="wizard_embedding_provider"
 						className="baca-bot-select"
@@ -456,65 +479,81 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 		);
 	};
 
-	const renderPineconeStep = () => (
-		<>
-			<h2 className="baca-wizard-step-title">
-				{__('Pinecone Settings', 'botisst-ai-chat-assistant')}
-			</h2>
-			<p className="baca-wizard-step-desc">
-				{__('Configure your Pinecone connection details below.', 'botisst-ai-chat-assistant')}
-			</p>
+	const renderPineconeStep = () => {
+		const currentDimensions = embeddingProvider === 'google' ? 768 : 1536;
+		const currentProviderName = embeddingProvider === 'google' ? __('Google Gemini', 'botisst-ai-chat-assistant') : __('OpenAI', 'botisst-ai-chat-assistant');
 
-			<div className="baca-bot-field">
-				<label htmlFor="wizard_pinecone_key">
-					{__('Pinecone API Key', 'botisst-ai-chat-assistant')}
-				</label>
-				<input
-					type="password"
-					id="wizard_pinecone_key"
-					className="baca-bot-input"
-					value={pineconeApiKey}
-					onChange={(e) => setPineconeApiKey(e.target.value)}
-					placeholder="pcsk_..."
-				/>
-			</div>
-			<div className="baca-bot-field">
-				<label htmlFor="wizard_pinecone_host">
-					{__('Pinecone Host', 'botisst-ai-chat-assistant')}
-				</label>
-				<input
-					type="text"
-					id="wizard_pinecone_host"
-					className="baca-bot-input"
-					value={pineconeHost}
-					onChange={(e) => setPineconeHost(e.target.value)}
-					placeholder="https://index-xxxxx.svc.aped-4627-b74a.pinecone.io"
-				/>
-				<a
-					href="https://app.pinecone.io/"
-					className="baca-api-help-link"
-					target="_blank"
-					rel="noopener noreferrer"
-				>
-					{__('Find your Pinecone API details and host URL here', 'botisst-ai-chat-assistant')}
-					<span className="dashicons dashicons-external" aria-hidden="true" />
-				</a>
-			</div>
-			<div className="baca-bot-field">
-				<label htmlFor="wizard_pinecone_index">
-					{__('Index Name', 'botisst-ai-chat-assistant')}
-				</label>
-				<input
-					type="text"
-					id="wizard_pinecone_index"
-					className="baca-bot-input"
-					value={pineconeIndexName}
-					onChange={(e) => setPineconeIndexName(e.target.value)}
-					placeholder={__('e.g. botisst-index', 'botisst-ai-chat-assistant')}
-				/>
-			</div>
-		</>
-	);
+		return (
+			<>
+				<h2 className="baca-wizard-step-title">
+					{__('Pinecone Settings', 'botisst-ai-chat-assistant')}
+				</h2>
+				<p className="baca-wizard-step-desc">
+					{__('Configure your Pinecone connection details below.', 'botisst-ai-chat-assistant')}
+				</p>
+
+				<div className="baca-kb-info-block" style={{ marginBottom: '1.25rem' }}>
+					<p style={{ margin: 0 }}>
+						<strong>{__('Important Pinecone Index Requirement:', 'botisst-ai-chat-assistant')}</strong>{' '}
+						{sprintf(
+							__('Because you are using %1$s, you must create your Pinecone index with exactly %2$d dimensions.', 'botisst-ai-chat-assistant'),
+							currentProviderName,
+							currentDimensions
+						)}
+					</p>
+				</div>
+
+				<div className="baca-bot-field">
+					<label htmlFor="wizard_pinecone_key">
+						{__('Pinecone API Key', 'botisst-ai-chat-assistant')}
+					</label>
+					<input
+						type="password"
+						id="wizard_pinecone_key"
+						className="baca-bot-input"
+						value={pineconeApiKey}
+						onChange={(e) => setPineconeApiKey(e.target.value)}
+						placeholder="pcsk_..."
+					/>
+				</div>
+				<div className="baca-bot-field">
+					<label htmlFor="wizard_pinecone_host">
+						{__('Pinecone Host', 'botisst-ai-chat-assistant')}
+					</label>
+					<input
+						type="text"
+						id="wizard_pinecone_host"
+						className="baca-bot-input"
+						value={pineconeHost}
+						onChange={(e) => setPineconeHost(e.target.value)}
+						placeholder="https://index-xxxxx.svc.aped-4627-b74a.pinecone.io"
+					/>
+					<a
+						href="https://app.pinecone.io/"
+						className="baca-api-help-link"
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						{__('Find your Pinecone API details and host URL here', 'botisst-ai-chat-assistant')}
+						<span className="dashicons dashicons-external" aria-hidden="true" />
+					</a>
+				</div>
+				<div className="baca-bot-field">
+					<label htmlFor="wizard_pinecone_index">
+						{__('Index Name', 'botisst-ai-chat-assistant')}
+					</label>
+					<input
+						type="text"
+						id="wizard_pinecone_index"
+						className="baca-bot-input"
+						value={pineconeIndexName}
+						onChange={(e) => setPineconeIndexName(e.target.value)}
+						placeholder={__('e.g. botisst-index', 'botisst-ai-chat-assistant')}
+					/>
+				</div>
+			</>
+		);
+	};
 
 	const renderStepThree = () => (
 		<>

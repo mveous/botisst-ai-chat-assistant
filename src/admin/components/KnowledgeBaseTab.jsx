@@ -625,8 +625,26 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 									<span className="dashicons dashicons-cloud" />
 								</span>
 								<div className="baca-kb-card__heading" style={{ minWidth: 0 }}>
-									<h3 className="baca-kb-card__title">
+									<h3 className="baca-kb-card__title" style={{ display: 'flex', alignItems: 'center' }}>
 										{__('Pinecone Configuration', 'botisst-ai-chat-assistant')}
+										{embeddingProvider.dimensions && (
+											<div className="baca-info-tooltip-wrapper">
+												<button
+													type="button"
+													className="baca-info-btn"
+													aria-label={__('Dimensions info', 'botisst-ai-chat-assistant')}
+												>
+													i
+												</button>
+												<div className="baca-info-tooltip">
+													{sprintf(
+														__('Because you selected %1$s, your Pinecone index must be created with exactly %2$d dimensions.', 'botisst-ai-chat-assistant'),
+														embeddingProvider.provider,
+														embeddingProvider.dimensions
+													)}
+												</div>
+											</div>
+										)}
 									</h3>
 									<p className="baca-kb-card__desc" style={{ margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
 										{__('Connect your Pinecone cloud vector database.', 'botisst-ai-chat-assistant')} 
@@ -650,19 +668,6 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 						</header>
 
 						<div className="baca-kb-card__body">
-
-							{embeddingProvider.dimensions && (
-								<div className="baca-kb-info-block">
-									<p>
-										<strong>{__('Important:', 'botisst-ai-chat-assistant')}</strong>
-										{' '}
-										{__('Because you are using', 'botisst-ai-chat-assistant')} <strong>{embeddingProvider.provider}</strong>, {__('you must create your Pinecone index with exactly', 'botisst-ai-chat-assistant')} <strong>{embeddingProvider.dimensions} {__('dimensions', 'botisst-ai-chat-assistant')}</strong>.
-									</p>
-									<p>
-										<em>{__('Note: If you change your API provider later, you must delete your Pinecone index, create a new one with the new dimensions, and click "Index Content" again.', 'botisst-ai-chat-assistant')}</em>
-									</p>
-								</div>
-							)}
 
 							<div className="baca-kb-form-group">
 								<label className="baca-label">
@@ -749,17 +754,37 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 					</header>
 					<div className="baca-kb-card__body">
 						<div className="baca-kb-form-group">
-							<label className="baca-label">
-								{__('Embedding Provider', 'botisst-ai-chat-assistant')}
-								<select
-									className="baca-select baca-kb-embedding-select"
-									value={embeddingProviderName}
-									onChange={(e) => setEmbeddingProviderName(e.target.value)}
-								>
-									<option value="openai">{__('OpenAI (text-embedding-3-small)', 'botisst-ai-chat-assistant')}</option>
-									<option value="google">{__('Google Gemini (gemini-embedding-001)', 'botisst-ai-chat-assistant')}</option>
-								</select>
-							</label>
+							<div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.375rem' }}>
+								<label className="baca-label" style={{ marginBottom: 0 }}>
+									{__('Embedding Provider', 'botisst-ai-chat-assistant')}
+								</label>
+								{vectorDb === 'pinecone' && (
+									<div className="baca-info-tooltip-wrapper">
+										<button
+											type="button"
+											className="baca-info-btn"
+											aria-label={__('Dimensions info', 'botisst-ai-chat-assistant')}
+										>
+											i
+										</button>
+										<div className="baca-info-tooltip">
+											{sprintf(
+												__('Because you selected %1$s, your Pinecone index must be created with exactly %2$d dimensions.', 'botisst-ai-chat-assistant'),
+												embeddingProviderName === 'google' ? __('Google Gemini (gemini-embedding-001)', 'botisst-ai-chat-assistant') : __('OpenAI (text-embedding-3-small)', 'botisst-ai-chat-assistant'),
+												embeddingProviderName === 'google' ? 768 : 1536
+											)}
+										</div>
+									</div>
+								)}
+							</div>
+							<select
+								className="baca-select baca-kb-embedding-select"
+								value={embeddingProviderName}
+								onChange={(e) => setEmbeddingProviderName(e.target.value)}
+							>
+								<option value="openai">{__('OpenAI (text-embedding-3-small)', 'botisst-ai-chat-assistant')}</option>
+								<option value="google">{__('Google Gemini (gemini-embedding-001)', 'botisst-ai-chat-assistant')}</option>
+							</select>
 							<p className="baca-hint">
 								{__('Select the provider to use for processing your knowledge base into vectors.', 'botisst-ai-chat-assistant')}
 							</p>
