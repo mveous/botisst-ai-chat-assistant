@@ -1,20 +1,18 @@
 # Botisst — AI Chat Assistant
 
-[![WordPress Support](https://img.shields.io/badge/WordPress-%3E%3D%205.8-blue.svg)](https://wordpress.org)
+[![WordPress Support](https://img.shields.io/badge/WordPress-%3E%3D%206.9-blue.svg)](https://wordpress.org)
 [![PHP Support](https://img.shields.io/badge/PHP-%3E%3D%207.4-8892BF.svg)](https://secure.php.net)
 [![License](https://img.shields.io/badge/License-GPLv2-green.svg)](https://www.gnu.org/licenses/gpl-2.0.html)
 
-A friendly, custom AI assistant for your WordPress site. Connect OpenAI or Google Gemini in seconds, train it with your own knowledge base, and chat with your visitors in real-time.
+A custom AI assistant for WordPress. Connect OpenAI or Gemini, train it with your knowledge base, and chat with visitors in real-time.
 
 ---
 
 ## Description
 
-Meet **Botisst**, your new AI-powered website assistant. Whether you want to answer customer support questions, guide visitors to the right pages, or just give your users a fun, interactive way to learn about your site, Botisst makes it easy.
+Meet Botisst, a feature-rich, self-hosted AI chatbot designed specifically for WordPress. Instead of routing your data through expensive third-party subscriptions, Botisst connects your site directly to OpenAI or Google Gemini.
 
-Unlike other clunky chatbot plugins, Botisst is built with a snappy React interface. It connects directly and securely to top-tier AI models (OpenAI and Google Gemini), meaning you don't have to pay for expensive middleman subscriptions. You get complete control over how your chatbot behaves, how it looks, and what knowledge it uses to answer questions.
-
-Give your visitors a smarter experience without slowing down your site.
+Botisst includes an advanced Retrieval-Augmented Generation (RAG) engine built right in. You can train the AI on your own content by adding text snippets, website URLs, and existing WordPress pages or posts. Your knowledge base is securely indexed and stored using either a built-in local SQLite vector database (zero configuration required) or Pinecone (for scalable cloud storage).
 
 ---
 
@@ -42,9 +40,9 @@ To get started, you'll need an API key from one of the supported providers:
 Setting up Botisst takes less than 5 minutes:
 1. **Upload & Install**: Search for "Botisst" in your WordPress admin under *Plugins > Add New*, or upload the plugin folder directly to `/wp-content/plugins/`.
 2. **Activate**: Click **Activate** on your Plugins screen.
-3. **Open Settings**: Click on the new **Botisst** menu item in your WordPress sidebar.
-4. **Link Your AI**: Go to the **API Credentials** tab and paste your OpenAI or Google Gemini key.
-5. **Launch!**: Customize how the chatbot looks, turn on **Global Visibility**, and you're good to go!
+3. **Run Setup Wizard**: Upon activation, you will automatically be redirected to the quick Setup Wizard.
+4. **Configure Requirements**: Follow the guided steps to link your OpenAI or Google Gemini API key and choose your database.
+5. **Launch!**: Once setup is complete, customize how the chatbot looks, turn on **Global Visibility**, and you're good to go!
 
 ---
 
@@ -74,10 +72,6 @@ If you'd like to learn more about how OpenAI and Google handle data, check out t
 ---
 
 ## Changelog
-
-### 1.0.1
-* Improve Folder Structure.
-* Minor Textual Changes.
 
 ### 1.0.0
 * Initial stable release.
