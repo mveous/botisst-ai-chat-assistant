@@ -1,6 +1,6 @@
 === Botisst - AI Chat Assistant ===
-Contributors: lionecoders, deep7197
-Tags: ai, chatbot, openai, chatgpt
+Contributors: lionecoders, deep7197, mveous
+Tags: ai, chatbot, agent, botisst, assistant
 Requires at least: 5.8
 Tested up to: 7.0
 Stable tag: 1.0.1
