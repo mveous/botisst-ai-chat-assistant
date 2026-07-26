@@ -20,8 +20,11 @@ function copy() {
         '!*.zip',
         '!package*.json',
         '!gulpfile.js',
+        '!webpack.config.js',
+        '!composer.lock',
         '!README.md',
-        '!.gitignore'
+        '!.gitignore',
+        '!.distignore'
     ])
     .pipe(dest(`dist/${pluginName}`));
 }

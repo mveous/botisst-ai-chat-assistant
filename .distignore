@@ -19,6 +19,8 @@ Thumbs.db
 
 # Development-only config files
 composer.lock
+webpack.config.js
+gulpfile.js
 package.json
 package-lock.json
 gulpfile.js
