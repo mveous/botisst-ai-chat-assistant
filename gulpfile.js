@@ -24,7 +24,8 @@ function copy() {
         '!composer.lock',
         '!README.md',
         '!.gitignore',
-        '!.distignore'
+        '!.distignore',
+        '!.wordpress-org/**'
     ])
     .pipe(dest(`dist/${pluginName}`));
 }
