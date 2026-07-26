@@ -729,18 +729,14 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 						</>
 					) : (
 						<>
-							{step === 1 ? (
-								<span />
-							) : (
-								<button
-									type="button"
-									className="baca-bot-link baca-wizard-skip"
-									onClick={handleSkip}
-									disabled={busy}
-								>
-									{__('Skip for now', 'botisst-ai-chat-assistant')}
-								</button>
-							)}
+							<button
+								type="button"
+								className="baca-bot-link baca-wizard-skip"
+								onClick={handleSkip}
+								disabled={busy}
+							>
+								{__('Skip for now', 'botisst-ai-chat-assistant')}
+							</button>
 							<button
 								type="button"
 								className="baca-btn baca-btn-primary"

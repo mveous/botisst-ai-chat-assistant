@@ -268,6 +268,45 @@ class BACA_Settings_Handler
 				'permission_callback' => [$this, 'baca_permission_only_admins'],
 			]
 		);
+
+		register_rest_route(
+			'baca/v1',
+			'/all-content',
+			[
+				'methods' => \WP_REST_Server::READABLE,
+				'callback' => [$this, 'get_all_content'],
+				'permission_callback' => [$this, 'baca_permission_only_admins'],
+			]
+		);
+	}
+
+	/**
+	 * Get all public content (pages, posts, CPTs) for exclusion dropdown.
+	 */
+	public function get_all_content($request) {
+		$post_types = get_post_types(['public' => true, 'exclude_from_search' => false], 'names');
+		unset($post_types['attachment']);
+		
+		$args = [
+			'post_type' => array_values($post_types),
+			'post_status' => 'any',
+			'posts_per_page' => 500,
+			'orderby' => 'title',
+			'order' => 'ASC',
+		];
+		
+		$query = new \WP_Query($args);
+		$items = [];
+		foreach ($query->posts as $post) {
+			$type_obj = get_post_type_object($post->post_type);
+			$items[] = [
+				'id' => $post->ID,
+				'title' => $post->post_title ? $post->post_title : 'ID ' . $post->ID,
+				'type' => $type_obj && isset($type_obj->labels->singular_name) ? $type_obj->labels->singular_name : ucfirst($post->post_type),
+			];
+		}
+		
+		return new \WP_REST_Response($items, 200);
 	}
 
 	/**

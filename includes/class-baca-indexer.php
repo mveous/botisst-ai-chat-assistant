@@ -150,7 +150,10 @@ class BACA_Indexer
 		);
 
 		$registered_types = get_post_types();
-		$valid_post_types = array_intersect($post_types, $registered_types);
+		$valid_post_types = array_filter(
+			array_intersect($post_types, $registered_types),
+			'post_type_exists'
+		);
 		$docs_table = esc_sql($wpdb->prefix . 'baca_rag_documents');
 
 		/*
@@ -180,7 +183,7 @@ class BACA_Indexer
 
 		foreach ($post_types as $post_type) {
 
-			if (!in_array($post_type, $registered_types, true)) {
+			if (!in_array($post_type, $registered_types, true) || !post_type_exists($post_type)) {
 				continue;
 			}
 

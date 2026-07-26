@@ -28,7 +28,7 @@ class BACA_RAG_Controller
 	 */
 	public function get_post_types($request)
 	{
-		$post_types = get_post_types(['public' => true], 'objects');
+		$post_types = get_post_types(['public' => true, 'exclude_from_search' => false], 'objects');
 		$types = [];
 
 		foreach ($post_types as $post_type) {
@@ -36,11 +36,13 @@ class BACA_RAG_Controller
 				$count = wp_count_posts($post_type->name);
 				$published = isset($count->publish) ? (int) $count->publish : 0;
 
-				$types[] = [
-					'value' => $post_type->name,
-					'label' => $post_type->label,
-					'count' => $published,
-				];
+				if ($published > 0) {
+					$types[] = [
+						'value' => $post_type->name,
+						'label' => $post_type->label,
+						'count' => $published,
+					];
+				}
 			}
 		}
 

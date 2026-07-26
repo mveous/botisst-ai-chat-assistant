@@ -816,3 +816,75 @@
     outline: none !important;
     box-shadow: none !important;
 }
+
+/* Mobile Responsiveness */
+@media (max-width: 640px) {
+    .baca-chat-floating {
+        bottom: 16px;
+    }
+    .baca-chat-floating.bottom-right {
+        right: 16px !important;
+        left: auto !important;
+    }
+    .baca-chat-floating.bottom-left {
+        left: 16px !important;
+        right: auto !important;
+    }
+
+    /* Make launcher slightly smaller */
+    .baca-chat-launcher {
+        width: 56px;
+        height: 56px;
+    }
+    .baca-chat-launcher .dashicons {
+        font-size: 26px;
+        width: 26px;
+        height: 26px;
+    }
+
+    /* Floating, perfectly centered chat window on mobile */
+    .baca-chat-window {
+        position: fixed !important;
+        bottom: 16px !important;
+        left: 50% !important;
+        right: auto !important;
+        width: calc(100vw - 32px) !important;
+        max-width: none !important;
+        height: calc(100vh - 32px) !important;
+        max-height: 600px !important;
+        border-radius: 24px !important;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.15) !important;
+        transform: translateX(-50%) !important;
+        animation: bacaMobileFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+        z-index: 9999999 !important;
+    }
+
+    @keyframes bacaMobileFadeIn {
+        from {
+            opacity: 0;
+            transform: translate(-50%, 20px);
+        }
+        to {
+            opacity: 1;
+            transform: translate(-50%, 0);
+        }
+    }
+
+    .bottom-left .baca-chat-window,
+    .bottom-right .baca-chat-window {
+        left: 50% !important;
+        right: auto !important;
+        transform-origin: center bottom !important;
+    }
+    
+    /* Ensure the header and footer adapt */
+    .baca-chat-header {
+        border-radius: 24px 24px 0 0;
+        padding: 16px;
+    }
+    .baca-chat-footer {
+        padding: 12px;
+        padding-bottom: max(12px, env(safe-area-inset-bottom));
+        border-radius: 0 0 24px 24px;
+    }
+}

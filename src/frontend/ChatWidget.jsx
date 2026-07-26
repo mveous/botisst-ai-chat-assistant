@@ -421,7 +421,7 @@ export default function ChatWidget({ settings, inline }) {
                 </div>
             )}
 
-            {!inline && (
+            {!inline && !isOpen && (
                 <div id="baca-launcher" className="baca-chat-launcher" onClick={toggleChat} style={{ background: primaryColor }}>
                     <span className="baca-launcher-text">{disp.launcher_text}</span>
                     <span className="dashicons dashicons-format-chat"></span>

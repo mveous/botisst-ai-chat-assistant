@@ -298,7 +298,8 @@ if (!class_exists('BACA_Chat_Assistant')):
 		public function baca_enqueue_frontend_assets()
 		{
 			if (file_exists(BACA_PATH . 'build/frontend/baca-frontend.css')) {
-				wp_enqueue_style('baca-frontend-style', BACA_URL . 'build/frontend/baca-frontend.css', [], BACA_VERSION);
+				// Require dashicons as a dependency so it loads even for logged-out users
+				wp_enqueue_style('baca-frontend-style', BACA_URL . 'build/frontend/baca-frontend.css', ['dashicons'], BACA_VERSION);
 			}
 
 			$asset_file = file_exists(BACA_PATH . 'build/frontend/baca-frontend.asset.php') ? require BACA_PATH . 'build/frontend/baca-frontend.asset.php' : ['dependencies' => ['wp-element'], 'version' => BACA_VERSION];
