@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Botisst - AI Chat Assistant
- * Plugin URI: https://lionecoders.com
+ * Plugin URI: https://mveous.com
  * Description: Botisst is an intelligent, feature-rich AI chatbot plugin for WordPress. Built with a lightning-fast React frontend and a robust settings dashboard, Botisst lets you fully customize the appearance, logic, and base knowledge text of your AI Virtual Assistant.
  * Version: 1.0.1
  * Author: LionEcoders
@@ -83,6 +83,10 @@ if (!class_exists('BACA_Chat_Assistant')):
 			add_shortcode('botisst_ai', [$this, 'baca_shortcode_render']);
 			add_action('plugin_action_links_' . BACA_BASENAME, [$this, 'baca_add_settings_link']);
 
+			// Cache Invalidation Hooks.
+			add_action('save_post', [$this, 'baca_invalidate_mcp_cache']);
+			add_action('delete_post', [$this, 'baca_invalidate_mcp_cache']);
+
 			// Integrations & Helpers.
 			add_action('init', [$this, 'baca_init_integrations']);
 			add_filter('http_request_timeout', [$this, 'baca_increase_http_timeout'], 9999, 2);
@@ -105,8 +109,8 @@ if (!class_exists('BACA_Chat_Assistant')):
 			// can't be used to detect a fresh install; use a dedicated flag instead.
 			if (!get_option('baca_setup_wizard_redirection')) {
 				update_option('baca_setup_wizard_status', 'pending');
-				set_transient('baca_activation_redirect', true, 60);
 			}
+			set_transient('baca_activation_redirect', true, 60);
 		}
 
 		/**
@@ -117,7 +121,10 @@ if (!class_exists('BACA_Chat_Assistant')):
 		 */
 		public function baca_maybe_redirect_after_activation()
 		{
-			if (isset($_GET['page']) && $_GET['page'] === 'baca' && isset($_GET['baca_wizard_status']) && $_GET['baca_wizard_status'] === 'completed') {
+			$wizard_status_nonce = isset($_GET['baca_wizard_status_nonce']) ? sanitize_text_field(wp_unslash($_GET['baca_wizard_status_nonce'])) : '';
+			$has_valid_wizard_status_nonce = wp_verify_nonce($wizard_status_nonce, 'baca_wizard_status');
+
+			if ($has_valid_wizard_status_nonce && current_user_can('manage_options') && isset($_GET['page']) && 'baca' === sanitize_text_field(wp_unslash($_GET['page'])) && isset($_GET['baca_wizard_status']) && 'completed' === sanitize_text_field(wp_unslash($_GET['baca_wizard_status']))) {
 				update_option('baca_setup_wizard_status', 'completed');
 			}
 
@@ -131,7 +138,7 @@ if (!class_exists('BACA_Chat_Assistant')):
 				return;
 			}
 
-			if (isset($_GET['activate-multi']) || !current_user_can('manage_options')) {
+			if (isset($_GET['activate_multi']) || !current_user_can('manage_options')) {
 				return;
 			}
 
@@ -152,8 +159,7 @@ if (!class_exists('BACA_Chat_Assistant')):
 		{
 			if (
 				strpos($url, 'generativelanguage.googleapis.com') !== false ||
-				strpos($url, 'api.openai.com') !== false ||
-				strpos($url, 'api.anthropic.com') !== false
+				strpos($url, 'api.openai.com') !== false
 			) {
 				return 60;
 			}
@@ -161,9 +167,9 @@ if (!class_exists('BACA_Chat_Assistant')):
 		}
 
 		/**
-		 * Enqueue Administrative Asset Routines
+		 * Enqueue the admin dashboard's script and styles.
 		 *
-		 * @param string $hook Global administrative dashboard routing panel trigger sequence logic hook identifier string.
+		 * @param string $hook The current admin page's hook suffix.
 		 * @return void
 		 */
 		public function baca_enqueue_admin_assets($hook)
@@ -173,9 +179,7 @@ if (!class_exists('BACA_Chat_Assistant')):
 				return;
 			}
 
-			if ('toplevel_page_baca' === $hook) {
-				wp_enqueue_media();
-			}
+			wp_enqueue_media();
 
 			// Note: In development, .css may not be generated.
 			if (file_exists(BACA_PATH . 'build/admin/baca-dashboard.css')) {
@@ -190,7 +194,7 @@ if (!class_exists('BACA_Chat_Assistant')):
 			$settings = BACA_Settings_Handler::baca_get_all_settings();
 
 			// Mask api keys for UI display and gather available models
-			$providers = ['openai', 'google', 'anthropic'];
+			$providers = ['openai', 'google'];
 			$models_list = [];
 			foreach ($providers as $id) {
 				$key = BACA_Settings_Handler::baca_get_provider_key($id);
@@ -214,7 +218,8 @@ if (!class_exists('BACA_Chat_Assistant')):
 					'models_list' => $models_list,
 					'load_limit' => get_user_meta(get_current_user_id(), 'baca_sessions_load_limit', true) ?: '100',
 					'sort_order' => get_user_meta(get_current_user_id(), 'baca_sessions_sort_order', true) ?: 'desc',
-					'show_setup_wizard' => get_option('baca_setup_wizard_status') === 'pending',
+					// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+					'show_setup_wizard' => get_option('baca_setup_wizard_status') === 'pending' || (isset($_GET['baca_open_wizard']) && 'true' === sanitize_text_field(wp_unslash($_GET['baca_open_wizard']))),
 				]
 			);
 		}
@@ -226,16 +231,24 @@ if (!class_exists('BACA_Chat_Assistant')):
 		 */
 		public function baca_render_setup_wizard_notice()
 		{
-			if (isset($_GET['page']) && $_GET['page'] === 'baca') {
+			$current_screen = function_exists('get_current_screen') ? get_current_screen() : null;
+			if ($current_screen && 'toplevel_page_baca' === $current_screen->id) {
 				return;
 			}
 
 			if (get_option('baca_setup_wizard_status') !== 'completed') {
-				$dashboard_link = admin_url('admin.php?page=baca&baca_wizard_status=completed');
+
+				// Explicitly dismisses the wizard (marks it completed) and
+				// goes straight to the plain dashboard.
+				$dashboard_link = wp_nonce_url(
+					admin_url('admin.php?page=baca&baca_wizard_status=completed'),
+					'baca_wizard_status',
+					'baca_wizard_status_nonce'
+				);
 				echo '<div class="notice notice-warning is-dismissible baca-setup-notice">';
 				echo '<p>' . sprintf(
-					/* translators: 1: run wizard link class/trigger, 2: dashboard link */
-					esc_html__('To use the chatbot properly, please %1$srun the setup wizard%2$s or %3$sgo to the plugin dashboard%4$s to configure the settings.', 'botisst-ai-chat-assistant'),
+					/* translators: 1: run wizard link open tag, 2: link close tag, 3: dashboard link open tag, 4: link close tag */
+					esc_html__('Your chatbot is almost ready! %1$sRun the Setup Wizard%2$s for a guided setup, or %3$sgo to the plugin dashboard%4$s to configure it manually.', 'botisst-ai-chat-assistant'),
 					'<a href="#" class="baca-run-wizard-trigger">',
 					'</a>',
 					'<a href="' . esc_url($dashboard_link) . '">',
@@ -265,19 +278,28 @@ if (!class_exists('BACA_Chat_Assistant')):
 		public function baca_ajax_dismiss_setup_notice()
 		{
 			check_ajax_referer('baca_dismiss_notice_nonce');
+
+			if (!current_user_can('manage_options')) {
+				wp_send_json_error(
+					esc_html__('You do not have permission to do this.', 'botisst-ai-chat-assistant'),
+					403
+				);
+			}
+
 			update_option('baca_setup_wizard_status', 'completed');
 			wp_send_json_success();
 		}
 
 		/**
-		 * Enqueue Frontend UI Application Asset Routines
+		 * Enqueue the frontend chat widget's script and styles.
 		 *
 		 * @return void
 		 */
 		public function baca_enqueue_frontend_assets()
 		{
 			if (file_exists(BACA_PATH . 'build/frontend/baca-frontend.css')) {
-				wp_enqueue_style('baca-frontend-style', BACA_URL . 'build/frontend/baca-frontend.css', [], BACA_VERSION);
+				// Require dashicons as a dependency so it loads even for logged-out users
+				wp_enqueue_style('baca-frontend-style', BACA_URL . 'build/frontend/baca-frontend.css', ['dashicons'], BACA_VERSION);
 			}
 
 			$asset_file = file_exists(BACA_PATH . 'build/frontend/baca-frontend.asset.php') ? require BACA_PATH . 'build/frontend/baca-frontend.asset.php' : ['dependencies' => ['wp-element'], 'version' => BACA_VERSION];
@@ -321,11 +343,13 @@ if (!class_exists('BACA_Chat_Assistant')):
 
 				// Set clear allowed cookie for 30 minutes (1800 seconds)
 				setcookie('baca_clear_allowed', 'true', time() + 1800, COOKIEPATH ? COOKIEPATH : '/', COOKIE_DOMAIN, is_ssl(), false);
+
+				$_COOKIE['baca_session_id'] = $session_id;
 			}
 		}
 
 		/**
-		 * Render Global Chatbot Wrapper logic block template (Footer)
+		 * Print the chatbot into wp_footer on the frontend, honoring display/exclusion settings.
 		 *
 		 * @return void
 		 */
@@ -338,9 +362,14 @@ if (!class_exists('BACA_Chat_Assistant')):
 			}
 
 			// Validate and execute proper string comparisons during page exclusions.
-			if (!empty($settings['display']['exclude_pages'])) {
-				$excluded_ids = array_map('trim', explode(',', $settings['display']['exclude_pages']));
-				if (in_array((string) get_the_ID(), $excluded_ids, true)) {
+			// Exclusion is by singular post/page ID, so it only applies on
+			// singular views — get_the_ID() returns false on archives/404
+			// (silently no-op'ing there), and get_queried_object_id() is the
+			// correct way to resolve "the current thing" without depending
+			// on The Loop having run yet.
+			if (!empty($settings['display']['exclude_pages']) && is_singular()) {
+				$excluded_ids = array_filter(array_map('trim', explode(',', $settings['display']['exclude_pages'])));
+				if (in_array((string) get_queried_object_id(), $excluded_ids, true)) {
 					return;
 				}
 			}
@@ -353,10 +382,10 @@ if (!class_exists('BACA_Chat_Assistant')):
 		}
 
 		/**
-		 * Secure Element Shortcode Rendering
+		 * Shortcode callback that renders the chatbot inline.
 		 *
-		 * @param array $atts Array configuration override parameters payload wrapper block.
-		 * @return string HTML element.
+		 * @param array $atts Shortcode attributes (currently unused).
+		 * @return string Chatbot root container markup.
 		 */
 		public function baca_shortcode_render($atts)
 		{
@@ -366,7 +395,7 @@ if (!class_exists('BACA_Chat_Assistant')):
 		}
 
 		/**
-		 * Initialize Auxiliary Feature Support Extension Integrations Sequences
+		 * Load optional third-party integrations (e.g. Elementor) if active.
 		 *
 		 * @return void
 		 */
@@ -394,9 +423,9 @@ if (!class_exists('BACA_Chat_Assistant')):
 		}
 
 		/**
-		 * Render Base View Chatbot UI Template Frame Wrapper Extrusion
+		 * Print the empty root element the frontend script mounts the chatbot into.
 		 *
-		 * @param bool $inline Target style orientation logic formatting flag payload.
+		 * @param bool $inline Whether to render the inline (shortcode) variant instead of the floating widget.
 		 * @return void
 		 */
 		public function baca_render_chatbot_ui($inline = false)
@@ -409,7 +438,7 @@ if (!class_exists('BACA_Chat_Assistant')):
 		}
 
 		/**
-		 * Add Core Global Admin Framework Interface Configuration Routing Menu Logic Sequence Wrapper Map
+		 * Register the plugin's top-level admin menu page.
 		 *
 		 * @return void
 		 */
@@ -427,7 +456,7 @@ if (!class_exists('BACA_Chat_Assistant')):
 		}
 
 		/**
-		 * Render Admin Page Handler Frame Sequence Layout Component Router Injector Mapping Routine Setup Layer Configuration Extension File Target Inclusion Loader Routine Function Frame Scope Wrapper Block Module Injector Link Setup Map Call Trigger Routing Event Callback
+		 * Render the plugin's admin dashboard page.
 		 *
 		 * @return void
 		 */
@@ -437,20 +466,20 @@ if (!class_exists('BACA_Chat_Assistant')):
 		}
 
 		/**
-		 * Add Settings Link into Plugin Index Dashboard Roster Display Container Table
+		 * Add a "Settings" link to the plugin's row on the Plugins list page.
 		 *
-		 * @param array $links Array string mapping array map payload structure collection sequence element dictionary block items logic payload wrapper scope list mapping payload container arrays list sequence mappings dict matrix.
+		 * @param array $links Existing plugin action links.
 		 * @return array
 		 */
 		public function baca_add_settings_link($links)
 		{
-			$settings_link = '<a href="' . admin_url('admin.php?page=baca') . '">' . esc_html__('Settings', 'botisst-ai-chat-assistant') . '</a>';
+			$settings_link = '<a href="' . esc_url(admin_url('admin.php?page=baca')) . '">' . esc_html__('Settings', 'botisst-ai-chat-assistant') . '</a>';
 			array_unshift($links, $settings_link);
 			return $links;
 		}
 
 		/**
-		 * Register Baseline Native Backend AI Client Engine Connection Frame Payload Instance Routing Loader Configuration Injector Object Wrapper Routing Sequence Logic Handler Boot Framework.
+		 * Load the AI client SDK and register the OpenAI and Google providers.
 		 *
 		 * @return void
 		 */
@@ -491,11 +520,6 @@ if (!class_exists('BACA_Chat_Assistant')):
 				'\WordPress\GoogleAiProvider\Provider\GoogleProvider'
 			);
 
-			$this->baca_register_ai_provider(
-				$registry,
-				'anthropic',
-				'\WordPress\AnthropicAiProvider\Provider\AnthropicProvider'
-			);
 
 			$this->baca_migrate_to_unified_settings();
 
@@ -513,11 +537,11 @@ if (!class_exists('BACA_Chat_Assistant')):
 		}
 
 		/**
-		 * Safe Routing Provider Verification Config Registration Core Payload Handler Action Module Routine Setup Logic Scope Frame Injector Component File Block Mapper Class Injection Target Target.
+		 * Register a single AI provider class with the registry, if not already registered.
 		 *
-		 * @param \WordPress\AiClient\Registry\AiClientRegistry $registry Target memory architecture register layer injection.
-		 * @param string                                        $name Provider architecture identifier key token identifier namespace target block token logic flag instance object framework variable instance scope definition structure element layer root parameter identity class token parameter name parameter structure name object block identity link flag node parameter property name frame identity parameter variable value variable logic string framework target root value array flag element class.
-		 * @param string                                        $class Extensible logic parameter layer path object logic block item identifier logic key element link.
+		 * @param \WordPress\AiClient\Registry\AiClientRegistry $registry AI client provider registry.
+		 * @param string                                        $name Provider identifier (e.g. 'openai').
+		 * @param string                                        $class Fully-qualified provider class name.
 		 * @return void
 		 */
 		private function baca_register_ai_provider($registry, $name, $class)
@@ -528,7 +552,10 @@ if (!class_exists('BACA_Chat_Assistant')):
 		}
 
 		/**
-		 * Migrate configurations securely from outdated schema to cohesive logic architecture structures safely and cleanly payload mapper.
+		 * One-time migration of settings from this plugin's legacy, pre-unified
+		 * option names (provider keys, chatbot settings, selected models) into
+		 * the single baca_chat_assistant_settings option. Runs once, guarded by
+		 * the baca_chat_assistant_settings_migrated flag.
 		 *
 		 * @return void
 		 */
@@ -542,9 +569,9 @@ if (!class_exists('BACA_Chat_Assistant')):
 			$settings = BACA_Settings_Handler::baca_get_all_settings();
 			$migrated = false;
 
-			$providers = ['openai', 'google', 'anthropic'];
+			$providers = ['openai', 'google'];
 
-			// 1. Migrate Logic Tokens.
+			// 1. Migrate provider API keys.
 			foreach ($providers as $provider) {
 				$key = '';
 				if ($is_wp_ai_client_70) {
@@ -560,14 +587,14 @@ if (!class_exists('BACA_Chat_Assistant')):
 				}
 			}
 
-			// 2. Map Legacy Bot Interface Configuration Framework Module Component.
+			// 2. Map legacy chatbot settings.
 			$old_bot_settings = get_option('baca_chatbot_settings');
 			if (!empty($old_bot_settings) && is_array($old_bot_settings)) {
 				$settings['chatbot'] = wp_parse_args($old_bot_settings, $settings['chatbot']);
 				$migrated = true;
 			}
 
-			// 3. Map Default System Tier Iteration Payload Layer Logic Matrix Setup Object Array Index Element Structure Variable Object Name Parameter Identity Setup String Vector Map Setup.
+			// 3. Map legacy selected models.
 			$old_models = get_option('baca_ai_selected_models');
 			if (!empty($old_models) && is_array($old_models)) {
 				$settings['models'] = wp_parse_args($old_models, $settings['models']);
@@ -575,19 +602,29 @@ if (!class_exists('BACA_Chat_Assistant')):
 			}
 
 			if ($migrated) {
-				update_option('baca_chat_assistant_settings', $settings);
+				BACA_Settings_Handler::baca_persist_settings($settings);
 			}
 
 			update_option('baca_chat_assistant_settings_migrated', true);
+		}
+
+		/**
+		 * Invalidate MCP site context cache when posts are saved or deleted.
+		 *
+		 * @return void
+		 */
+		public function baca_invalidate_mcp_cache()
+		{
+			wp_cache_delete('baca_site_context', 'baca_mcp');
 		}
 	}
 
 endif;
 
 /**
- * Initialize Extensible Plugin Matrix Container Payload Engine Interface System Frame Block
+ * Boot the plugin.
  *
- * @return BACA_Chat_Assistant Singleton class return sequence instance payload setup mapping module structure object frame class link instance setup architecture parameter object variable instance framework variable item instance structure matrix block item logic property frame array property logic path node target map block structure module layout array logic string framework value logic object parameter identity scope logic node module matrix array string list tree frame item item path logic structure instance block list link pointer target item array matrix element key map structure array target root item index array instance value link node token node element block key tree array level architecture class.
+ * @return BACA_Chat_Assistant The plugin's singleton instance.
  */
 function baca_init()
 {

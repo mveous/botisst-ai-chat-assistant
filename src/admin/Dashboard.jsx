@@ -11,7 +11,7 @@ import SetupWizard from './components/SetupWizard';
 
 const TABS = [
 	{ id: 'api-keys', label: __('API Keys', 'botisst-ai-chat-assistant'), icon: 'dashicons-rest-api', desc: __('Configure your AI providers and select your preferred chatbot models.', 'botisst-ai-chat-assistant'), component: ApiKeysTab },
-	{ id: 'chatbot-settings', label: __('Chatbot Settings', 'botisst-ai-chat-assistant'), icon: 'dashicons-admin-settings', desc: __('Customize your chatbot name, greeting message, and behavioral features.', 'botisst-ai-chat-assistant'), component: ChatbotSettingsTab },
+	{ id: 'chatbot-settings', label: __('Chatbot', 'botisst-ai-chat-assistant'), icon: 'dashicons-admin-settings', desc: __('Customize your chatbot name, greeting message, and behavioral features.', 'botisst-ai-chat-assistant'), component: ChatbotSettingsTab },
 	{ id: 'display-settings', label: __('Display Options', 'botisst-ai-chat-assistant'), icon: 'dashicons-align-center', desc: __('Configure where and how your chatbot appears on the frontend.', 'botisst-ai-chat-assistant'), component: DisplaySettingsTab },
 	{ id: 'instructions', label: __('Instructions', 'botisst-ai-chat-assistant'), icon: 'dashicons-edit', desc: __('Set how your chatbot talks, what it helps with, and how creative its replies are.', 'botisst-ai-chat-assistant'), component: InstructionsTab },
 	{ id: 'knowledge-base', label: __('Knowledge Base', 'botisst-ai-chat-assistant'), icon: 'dashicons-database', desc: __('Provide custom text, links, documents, and index your website content for the chatbot to learn from.', 'botisst-ai-chat-assistant'), component: KnowledgeBaseTab },
@@ -29,6 +29,7 @@ export default function Dashboard({ settings: initialSettings }) {
 	const [settings, setSettings] = useState(initialSettings);
 	const [notice, setNotice] = useState(null);
 	const [showWizard, setShowWizard] = useState(!!window.baca_data?.show_setup_wizard);
+	const [wizardSessionKey, setWizardSessionKey] = useState(0);
 
 	const isSaveChatEnabled = !!settings?.chatbot?.save_chat;
 	const availableTabs = TABS.filter((tab) => {
@@ -66,6 +67,14 @@ export default function Dashboard({ settings: initialSettings }) {
 		}
 	}, [activeTab, availableTabs]);
 
+	useEffect(() => {
+		// Keep the active tab visible inside the scrollable mobile tab bar.
+		const activeButton = document.querySelector('.baca-tabs .baca-tab.active');
+		if (activeButton && typeof activeButton.scrollIntoView === 'function') {
+			activeButton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+		}
+	}, [activeTab]);
+
 	useEffect( () => {
 		const syncTabFromHash = () => {
 			const hash = window.location.hash.replace( '#', '' );
@@ -76,6 +85,16 @@ export default function Dashboard({ settings: initialSettings }) {
 		window.addEventListener( 'hashchange', syncTabFromHash );
 		return () => window.removeEventListener( 'hashchange', syncTabFromHash );
 	}, [availableTabs] );
+
+	useEffect(() => {
+		if (showWizard) {
+			const url = new URL(window.location.href);
+			if (url.searchParams.has('baca_open_wizard')) {
+				url.searchParams.delete('baca_open_wizard');
+				window.history.replaceState({}, '', url.toString());
+			}
+		}
+	}, [showWizard]);
 
 	const handleTabClick = (tabId) => () => {
 		setActiveTab(tabId);
@@ -88,7 +107,10 @@ export default function Dashboard({ settings: initialSettings }) {
 				open={showWizard}
 				settings={settings}
 				onSave={updateSettingsData}
-				onClose={() => setShowWizard(false)}
+				onClose={() => {
+					setShowWizard(false);
+					setWizardSessionKey(prev => prev + 1);
+				}}
 				showNotice={showNotice}
 			/>
 			<header className="baca-dashboard-header">
@@ -145,7 +167,7 @@ export default function Dashboard({ settings: initialSettings }) {
 				)}
 
 				<div className="baca-tab-panel active">
-					{ActiveComponent && <ActiveComponent settings={settings} onSave={updateSettingsData} showNotice={showNotice} />}
+					{ActiveComponent && <ActiveComponent key={`${activeTab}-${wizardSessionKey}`} settings={settings} onSave={updateSettingsData} showNotice={showNotice} />}
 				</div>
 			</main>
 		</div>

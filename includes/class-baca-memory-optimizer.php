@@ -38,8 +38,9 @@ class BACA_Memory_Optimizer {
 	 * @return array Optimized context structure.
 	 */
 	public function build_optimized_context( $session_id, $current_question, $rag_context = '' ) {
-		$recent_messages = $this->get_recent_messages( $session_id, $this->messages_limit );
-		$conversation_summary = $this->get_conversation_summary( $session_id );
+		$messages = $this->get_session_messages( $session_id );
+		$recent_messages = $this->format_recent_messages( $messages, $this->messages_limit );
+		$conversation_summary = $this->get_conversation_summary( $session_id, $messages );
 
 		return [
 			'summary'           => $conversation_summary,
@@ -51,24 +52,27 @@ class BACA_Memory_Optimizer {
 	}
 
 	/**
-	 * Get last N messages from session
+	 * Fetch and decode a session's full stored message history.
+	 *
+	 * Shared by get_conversation_summary() (via build_optimized_context())
+	 * and format_recent_messages(), so a single chat turn queries the
+	 * sessions table once instead of twice.
 	 *
 	 * @param string $session_id Session ID.
-	 * @param int    $limit Number of messages to retrieve.
-	 * @return array Recent messages.
+	 * @return array Decoded messages, or [] if none/invalid.
 	 */
-	private function get_recent_messages( $session_id, $limit = 4 ) {
-		global $wpdb;
-
+	private function get_session_messages( $session_id ) {
 		if ( empty( $session_id ) ) {
 			return [];
 		}
 
-		$table = $wpdb->prefix . 'baca_sessions';
+		global $wpdb;
+		$table = esc_sql( $wpdb->prefix . 'baca_sessions' );
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database query on custom table.
 		$messages_json = $wpdb->get_var(
 			$wpdb->prepare(
-				"SELECT content FROM {$table} WHERE session_id = %s LIMIT 1",
+				"SELECT content FROM {$table} WHERE session_id = %s LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
 				$session_id
 			)
 		);
@@ -79,7 +83,18 @@ class BACA_Memory_Optimizer {
 
 		$messages = json_decode( $messages_json, true );
 
-		if ( ! is_array( $messages ) || empty( $messages ) ) {
+		return is_array( $messages ) ? $messages : [];
+	}
+
+	/**
+	 * Get last N messages from an already-fetched message history.
+	 *
+	 * @param array $messages Full session message history (see get_session_messages()).
+	 * @param int   $limit Number of messages to retrieve.
+	 * @return array Recent messages.
+	 */
+	private function format_recent_messages( $messages, $limit = 4 ) {
+		if ( empty( $messages ) ) {
 			return [];
 		}
 
@@ -104,10 +119,13 @@ class BACA_Memory_Optimizer {
 	 *
 	 * Summarizes conversation topics and key points
 	 *
-	 * @param string $session_id Session ID.
+	 * @param string     $session_id Session ID.
+	 * @param array|null $messages Already-fetched message history (see
+	 *                             get_session_messages()); fetched here if
+	 *                             not provided, e.g. when called directly.
 	 * @return string Conversation summary or empty string.
 	 */
-	private function get_conversation_summary( $session_id ) {
+	private function get_conversation_summary( $session_id, $messages = null ) {
 		if ( empty( $session_id ) ) {
 			return '';
 		}
@@ -120,23 +138,11 @@ class BACA_Memory_Optimizer {
 			return $cached;
 		}
 
-		global $wpdb;
-		$table = $wpdb->prefix . 'baca_sessions';
-
-		$messages_json = $wpdb->get_var(
-			$wpdb->prepare(
-				"SELECT content FROM {$table} WHERE session_id = %s LIMIT 1",
-				$session_id
-			)
-		);
-
-		if ( empty( $messages_json ) ) {
-			return '';
+		if ( null === $messages ) {
+			$messages = $this->get_session_messages( $session_id );
 		}
 
-		$messages = json_decode( $messages_json, true );
-
-		if ( ! is_array( $messages ) || count( $messages ) < 5 ) {
+		if ( count( $messages ) < 5 ) {
 			return ''; // Not enough messages to summarize
 		}
 
@@ -156,7 +162,6 @@ class BACA_Memory_Optimizer {
 	 * @return string Summary text.
 	 */
 	private function generate_summary_from_messages( $messages ) {
-		$topics = [];
 		$user_questions = [];
 
 		foreach ( $messages as $msg ) {
@@ -165,7 +170,7 @@ class BACA_Memory_Optimizer {
 			}
 
 			if ( 'user' === $msg['role'] ) {
-				$user_questions[] = $msg['content'];
+				$user_questions[] = wp_strip_all_tags( $msg['content'] );
 			}
 		}
 
@@ -177,7 +182,7 @@ class BACA_Memory_Optimizer {
 		$summary = 'Conversation topics covered: ';
 		$summary .= implode( ', ', array_slice( $user_questions, 0, 3 ) );
 
-		return substr( $summary, 0, $this->summary_max_tokens * 4 ); // Rough estimate: 1 token ≈ 4 chars
+		return mb_substr( $summary, 0, $this->summary_max_tokens * 4 ); // Rough estimate: 1 token ≈ 4 chars
 	}
 
 	/**
@@ -224,7 +229,7 @@ class BACA_Memory_Optimizer {
 			$memory .= "\n## Recent Messages\n";
 			foreach ( $context['recent_messages'] as $msg ) {
 				$role = 'user' === $msg['role'] ? 'User' : 'Assistant';
-				$memory .= "$role: " . substr( $msg['content'], 0, 200 ) . "\n";
+				$memory .= "$role: " . mb_substr( $msg['content'], 0, 200 ) . "\n";
 			}
 		}
 

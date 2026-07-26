@@ -44,18 +44,6 @@ class BACA_Vector_DB_Factory
 				'status' => 'stable',
 				'requires' => ['api_key', 'environment', 'index_name'],
 			],
-			'weaviate' => [
-				'name' => 'Weaviate',
-				'description' => 'Self-hosted or cloud vector database',
-				'status' => 'stable',
-				'requires' => ['host_url'],
-			],
-			'milvus' => [
-				'name' => 'Milvus',
-				'description' => 'Open-source self-hosted vector database',
-				'status' => 'stable',
-				'requires' => ['host', 'port', 'collection_name'],
-			],
 		];
 	}
 
@@ -122,31 +110,6 @@ class BACA_Vector_DB_Factory
 
 				break;
 
-			case 'weaviate':
-
-				require_once
-					BACA_PATH .
-					'includes/class-baca-vector-db-weaviate.php';
-
-				$instance =
-					new BACA_Vector_DB_Weaviate(
-						$config
-					);
-
-				break;
-
-			case 'milvus':
-
-				require_once
-					BACA_PATH .
-					'includes/class-baca-vector-db-milvus.php';
-
-				$instance =
-					new BACA_Vector_DB_Milvus(
-						$config
-					);
-
-				break;
 
 			default:
 

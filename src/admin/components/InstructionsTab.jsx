@@ -11,11 +11,17 @@ export default function InstructionsTab( { settings, onSave, showNotice } ) {
 	const [ saving, setSaving ] = useState( false );
 	const botSettings = settings?.chatbot || {};
 
-	const [ formData, setFormData ] = useState( {
+	const getInitialFormData = () => ( {
 		system_prompt: botSettings.system_prompt || '',
 		temperature: botSettings.temperature ?? 0.7,
 		max_tokens: botSettings.max_tokens ?? 500,
 	} );
+
+	const [ formData, setFormData ] = useState( getInitialFormData );
+	// Snapshot of the last-saved form state — the Save button stays
+	// disabled until something differs from this baseline.
+	const [ baseline, setBaseline ] = useState( getInitialFormData );
+	const isDirty = JSON.stringify( formData ) !== JSON.stringify( baseline );
 
 	const handleChange = ( name, value ) => {
 		setFormData( ( prev ) => ( { ...prev, [ name ]: value } ) );
@@ -31,6 +37,7 @@ export default function InstructionsTab( { settings, onSave, showNotice } ) {
 				data: formData,
 			} );
 			onSave( { chatbot: { ...botSettings, ...formData } } );
+			setBaseline( formData );
 			showNotice( __( 'Instructions saved successfully!', 'botisst-ai-chat-assistant' ) );
 		} catch ( error ) {
 			showNotice( error.message || __( 'Failed to save instructions', 'botisst-ai-chat-assistant' ), 'error' );
@@ -55,7 +62,7 @@ export default function InstructionsTab( { settings, onSave, showNotice } ) {
 					</header>
 					<div className="baca-instructions-card__body">
 						<label htmlFor="system_prompt" className="baca-instructions-label">
-							{ __( 'System Prompt', 'botisst-ai-chat-assistant' ) }
+							{ __( 'Custom ChatBot Prompt', 'botisst-ai-chat-assistant' ) }
 						</label>
 						<textarea
 							id="system_prompt"
@@ -86,7 +93,7 @@ export default function InstructionsTab( { settings, onSave, showNotice } ) {
 							<div className="baca-instructions-param">
 								<div className="baca-instructions-param__head">
 									<label htmlFor="temperature">
-										{ __( 'Temperature', 'botisst-ai-chat-assistant' ) }
+										{ __( 'Chat Accuracy', 'botisst-ai-chat-assistant' ) }
 									</label>
 									<span className="baca-instructions-value-badge">
 										{ temperatureValue.toFixed( 1 ) }
@@ -133,10 +140,10 @@ export default function InstructionsTab( { settings, onSave, showNotice } ) {
 				</article>
 
 				<footer className="baca-instructions-footer">
-					<button type="submit" className="baca-btn baca-btn-primary" disabled={ saving }>
+					<button type="submit" className="baca-btn baca-btn-primary" disabled={ saving || ! isDirty }>
 						{ saving
 							? <><span className="baca-spinner" aria-hidden="true" /> { __( 'Saving…', 'botisst-ai-chat-assistant' ) }</>
-							: __( 'Save Instructions', 'botisst-ai-chat-assistant' ) }
+							: __( 'Save', 'botisst-ai-chat-assistant' ) }
 					</button>
 				</footer>
 			</form>

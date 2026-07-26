@@ -3,6 +3,10 @@
  * Site Analyzer: Detects site type (ecommerce, blog, service, general)
  */
 
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 class BACA_Site_Analyzer {
 	private static $instance = null;
 	private $transient_key = 'baca_site_type_detection';

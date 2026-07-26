@@ -12,22 +12,27 @@ const PROVIDERS = {
 		name: __('Google Gemini', 'botisst-ai-chat-assistant'),
 		link: 'https://aistudio.google.com/api-keys',
 	},
-	anthropic: {
-		name: __('Anthropic', 'botisst-ai-chat-assistant'),
-		link: 'https://platform.claude.com/settings/keys',
-	},
 };
 
 export default function ApiKeysTab({ settings, onSave, showNotice }) {
 	const [ saving, setSaving ] = useState( false );
 	const [ resetting, setResetting ] = useState( {} );
 	const [ confirmingProvider, setConfirmingProvider ] = useState( null );
-	const [ formData, setFormData ] = useState( {
+	const [ modelsList, setModelsList ] = useState( () => window.baca_data?.models_list || {} );
+
+	const getInitialFormData = () => ( {
 		openai_key: '',
 		google_key: '',
-		anthropic_key: '',
 		models: settings?.models || {},
+		default_provider: settings?.chatbot?.default_provider || 'openai',
 	} );
+
+	const [ formData, setFormData ] = useState( getInitialFormData );
+	// Snapshot of the last-saved (or just-loaded) form state, used to decide
+	// whether the Save button should be enabled — it stays disabled until
+	// something actually differs from this baseline.
+	const [ baseline, setBaseline ] = useState( getInitialFormData );
+	const isDirty = JSON.stringify( formData ) !== JSON.stringify( baseline );
 
 	const isConnected = ( id ) => !! settings.api_keys?.[ id ];
 	const getMaskedKey = ( id ) => settings.api_keys?.[ id ] || '';
@@ -43,13 +48,40 @@ export default function ApiKeysTab({ settings, onSave, showNotice }) {
 	const handleReset = async ( provider ) => {
 		setResetting( ( prev ) => ( { ...prev, [ provider ]: true } ) );
 		try {
-			await apiFetch( {
+			const response = await apiFetch( {
 				path: '/baca/v1/reset-key',
 				method: 'POST',
 				data: { provider },
 			} );
 			showNotice( __( 'Key reset successfully!', 'botisst-ai-chat-assistant' ), 'success' );
-			setTimeout( () => window.location.reload(), 1000 );
+			
+			const updatedApiKeys = { ...settings?.api_keys };
+			delete updatedApiKeys[ provider ];
+
+			const updatedModels = { ...settings?.models };
+			delete updatedModels[ provider ];
+
+			onSave( {
+				api_keys: updatedApiKeys,
+				models: updatedModels,
+				chatbot: response.chatbot || settings?.chatbot,
+			} );
+
+			setFormData( ( prev ) => {
+				const updated = {
+					...prev,
+					[ `${ provider }_key` ]: '',
+					default_provider: response.chatbot?.default_provider || '',
+					models: {
+						...prev.models,
+						[ provider ]: '',
+					},
+				};
+				// Resetting a key persists immediately (it's not a pending
+				// edit), so the new state becomes the baseline too.
+				setBaseline( updated );
+				return updated;
+			} );
 		} catch ( error ) {
 			showNotice( error.message || __( 'Failed to reset key', 'botisst-ai-chat-assistant' ), 'error' );
 		} finally {
@@ -61,13 +93,34 @@ export default function ApiKeysTab({ settings, onSave, showNotice }) {
 		e.preventDefault();
 		setSaving( true );
 		try {
-			await apiFetch( {
+			const response = await apiFetch( {
 				path: '/baca/v1/save-settings',
 				method: 'POST',
 				data: formData,
 			} );
-			showNotice( __( 'Settings saved successfully! Reloading...', 'botisst-ai-chat-assistant' ), 'success' );
-			setTimeout( () => window.location.reload(), 1000 );
+			showNotice( response.message || __( 'Settings saved successfully!', 'botisst-ai-chat-assistant' ), 'success' );
+			
+			onSave( {
+				api_keys: response.api_keys || {},
+				chatbot: response.chatbot || {},
+				models: response.models || {},
+			} );
+
+			if ( response.models_list ) {
+				setModelsList( response.models_list );
+			}
+
+			setFormData( ( prev ) => {
+				const updated = { ...prev };
+				Object.keys( PROVIDERS ).forEach( ( id ) => {
+					updated[ `${ id }_key` ] = '';
+				} );
+				if ( response.chatbot?.default_provider ) {
+					updated.default_provider = response.chatbot.default_provider;
+				}
+				setBaseline( updated );
+				return updated;
+			} );
 		} catch ( error ) {
 			let errorMsg = error.message;
 			if ( error.errors && typeof error.errors === 'object' ) {
@@ -79,15 +132,43 @@ export default function ApiKeysTab({ settings, onSave, showNotice }) {
 		}
 	};
 
-	const modelsList = window.baca_data?.models_list || {};
-
 	return (
 		<div className="baca-api-keys">
 			<form onSubmit={ handleSubmit }>
 				{ Object.entries( PROVIDERS ).map( ( [ id, providerData ] ) => (
 					<article key={ id } className="baca-api-provider-card">
-						<header className="baca-api-provider-card__header">
+						<header className="baca-api-provider-card__header" style={ { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }>
 							<h3>{ providerData.name }</h3>
+							{ isConnected( id ) && (
+								<div className="baca-api-provider-toggle" style={ { display: 'flex', alignItems: 'center', gap: '8px' } }>
+									<span style={ { fontSize: '12px', fontWeight: '500', color: formData.default_provider === id ? 'var(--baca-success, #10b981)' : '#6b7280' } }>
+										{ formData.default_provider === id ? __( 'Active', 'botisst-ai-chat-assistant' ) : __( 'Inactive', 'botisst-ai-chat-assistant' ) }
+									</span>
+									<label className="baca-toggle" htmlFor={ `toggle_${ id }` }>
+										<input
+											id={ `toggle_${ id }` }
+											type="checkbox"
+											checked={ formData.default_provider === id }
+											onChange={ ( e ) => {
+												const checked = e.target.checked;
+												if ( checked ) {
+													setFormData( ( prev ) => ( {
+														...prev,
+														default_provider: id,
+													} ) );
+												} else {
+													const other = Object.keys( PROVIDERS ).find( ( pId ) => pId !== id && isConnected( pId ) );
+													setFormData( ( prev ) => ( {
+														...prev,
+														default_provider: other || '',
+													} ) );
+												}
+											} }
+										/>
+										<span className="baca-toggle-slider" aria-hidden="true" />
+									</label>
+								</div>
+							) }
 						</header>
 
 						<div className="baca-api-provider-card__body">
@@ -153,10 +234,10 @@ export default function ApiKeysTab({ settings, onSave, showNotice }) {
 				) ) }
 
 				<footer className="baca-api-keys-footer">
-					<button type="submit" className="baca-btn baca-btn-primary" disabled={ saving }>
+					<button type="submit" className="baca-btn baca-btn-primary" disabled={ saving || ! isDirty }>
 						{ saving
 							? <><span className="baca-spinner" aria-hidden="true" /> { __( 'Saving…', 'botisst-ai-chat-assistant' ) }</>
-							: __( 'Save Settings', 'botisst-ai-chat-assistant' ) }
+							: __( 'Save', 'botisst-ai-chat-assistant' ) }
 					</button>
 				</footer>
 			</form>

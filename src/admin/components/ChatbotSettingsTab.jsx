@@ -5,20 +5,21 @@ import apiFetch from '@wordpress/api-fetch';
 const PROVIDER_LABELS = {
 	openai: __( 'OpenAI', 'botisst-ai-chat-assistant' ),
 	google: __( 'Google Gemini', 'botisst-ai-chat-assistant' ),
-	anthropic: __( 'Anthropic', 'botisst-ai-chat-assistant' ),
 };
 
 const SUB_TABS = [
-	{ id: 'general', label: __( 'General Settings', 'botisst-ai-chat-assistant' ) },
-	{ id: 'advanced', label: __( 'Advanced Settings', 'botisst-ai-chat-assistant' ) },
+	{ id: 'general', label: __( 'General', 'botisst-ai-chat-assistant' ) },
+	{ id: 'advanced', label: __( 'Advance', 'botisst-ai-chat-assistant' ) },
+	{ id: 'style', label: __( 'Style', 'botisst-ai-chat-assistant' ) },
+	
 ];
 
 export default function ChatbotSettingsTab( { settings, onSave, showNotice } ) {
 	const botSettings = settings?.chatbot || {};
 	const [ activeSubTab, setActiveSubTab ] = useState( 'general' );
 	const [ saving, setSaving ] = useState( false );
-	const [ providerPickerOpen, setProviderPickerOpen ] = useState( false );
-	const [ formData, setFormData ] = useState( {
+
+	const getInitialFormData = () => ( {
 		bot_name: botSettings.bot_name || '',
 		primary_color: botSettings.primary_color || '#6366f1',
 		greeting_msg: botSettings.greeting_msg || '',
@@ -34,10 +35,18 @@ export default function ChatbotSettingsTab( { settings, onSave, showNotice } ) {
 		pre_questions_border_radius: botSettings.pre_questions_border_radius || 'rounded',
 		bot_avatar: botSettings.bot_avatar || '',
 		bubble_style: botSettings.bubble_style || 'rounded',
-		default_provider: botSettings.default_provider || 'openai',
+
 		save_chat: botSettings.save_chat ?? false,
-		enable_pre_questions: botSettings.enable_pre_questions ?? true,
+		ask_email: botSettings.ask_email ?? false,
+		enable_pre_questions: botSettings.enable_pre_questions ?? false,
+		rate_limit_per_minute: botSettings.rate_limit_per_minute ?? 20,
 	} );
+
+	const [ formData, setFormData ] = useState( getInitialFormData );
+	// Snapshot of the last-saved form state — the Save button stays
+	// disabled until something differs from this baseline.
+	const [ baseline, setBaseline ] = useState( getInitialFormData );
+	const isDirty = JSON.stringify( formData ) !== JSON.stringify( baseline );
 
 	const handleChange = ( name, value ) => {
 		setFormData( ( prev ) => ( { ...prev, [ name ]: value } ) );
@@ -72,6 +81,7 @@ export default function ChatbotSettingsTab( { settings, onSave, showNotice } ) {
 				data: formData,
 			} );
 			onSave( { chatbot: { ...botSettings, ...formData } } );
+			setBaseline( formData );
 			showNotice( __( 'Bot settings saved successfully!', 'botisst-ai-chat-assistant' ) );
 		} catch ( error ) {
 			showNotice( error.message || __( 'Failed to save settings', 'botisst-ai-chat-assistant' ), 'error' );
@@ -80,24 +90,7 @@ export default function ChatbotSettingsTab( { settings, onSave, showNotice } ) {
 		}
 	};
 
-	const connectedProviders = [];
-	if ( settings?.api_keys?.openai ) {
-		connectedProviders.push( { id: 'openai', name: PROVIDER_LABELS.openai } );
-	}
-	if ( settings?.api_keys?.google ) {
-		connectedProviders.push( { id: 'google', name: PROVIDER_LABELS.google } );
-	}
-	if ( settings?.api_keys?.anthropic ) {
-		connectedProviders.push( { id: 'anthropic', name: PROVIDER_LABELS.anthropic } );
-	}
 
-	const activeProviderId = connectedProviders.find( ( p ) => p.id === formData.default_provider )
-		? formData.default_provider
-		: connectedProviders[ 0 ]?.id;
-
-	const activeProviderName = activeProviderId
-		? ( PROVIDER_LABELS[ activeProviderId ] || activeProviderId )
-		: null;
 
 	const avatarInitial = ( formData.bot_name || 'B' ).charAt( 0 ).toUpperCase();
 
@@ -212,142 +205,30 @@ export default function ChatbotSettingsTab( { settings, onSave, showNotice } ) {
 						</div>
 					</section>
 
-					<div className="baca-bot-grid">
-						<section className="baca-bot-section">
-							<h2 className="baca-bot-section__title">
-								{ __( 'Bot Avatar', 'botisst-ai-chat-assistant' ) }
-							</h2>
-							<div className="baca-bot-avatar-card" style={ { margin: '0 auto' } }>
-								<div className="baca-bot-avatar-preview">
-									{ formData.bot_avatar ? (
-										<img src={ formData.bot_avatar } alt="" />
-									) : (
-										<span>{ avatarInitial }</span>
-									) }
-								</div>
-								<button
-									type="button"
-									className="baca-btn baca-btn-primary baca-bot-upload-btn"
-									onClick={ handleUploadImage }
-								>
-									<span className="dashicons dashicons-upload" aria-hidden="true" />
-									{ __( 'Upload New', 'botisst-ai-chat-assistant' ) }
-								</button>
-								{ !! formData.bot_avatar && (
-									<button
-										type="button"
-										className="baca-bot-remove-avatar"
-										onClick={ () => handleChange( 'bot_avatar', '' ) }
-									>
-										{ __( 'Remove', 'botisst-ai-chat-assistant' ) }
-									</button>
-								) }
-								<p className="baca-bot-hint baca-bot-hint--center">
-									{ __( 'JPG, PNG or SVG. Max size 2MB.', 'botisst-ai-chat-assistant' ) }
-								</p>
-							</div>
-						</section>
-
-						<section className="baca-bot-section">
-							<h2 className="baca-bot-section__title">
-								{ __( 'Branding & Styles', 'botisst-ai-chat-assistant' ) }
-							</h2>
-							<div className="baca-bot-col--stack">
-								<div className="baca-bot-field">
-									<label htmlFor="primary_color">
-										{ __( 'Primary Color', 'botisst-ai-chat-assistant' ) }
-									</label>
-									<div className="baca-bot-color-field">
-										<input
-											type="color"
-											id="primary_color"
-											className="baca-bot-color-picker"
-											value={ formData.primary_color }
-											onChange={ ( e ) => handleChange( 'primary_color', e.target.value ) }
-											aria-label={ __( 'Primary color', 'botisst-ai-chat-assistant' ) }
-										/>
-										<span className="baca-bot-color-value">{ formData.primary_color }</span>
-									</div>
-									<p className="baca-bot-hint">
-										{ __( 'Used for the chat header, launcher button, and your messages.', 'botisst-ai-chat-assistant' ) }
-									</p>
-								</div>
-
-								<div className="baca-bot-field">
-									<label htmlFor="bubble_style">
-										{ __( 'Chat Bubble Style', 'botisst-ai-chat-assistant' ) }
-									</label>
-									<select
-										id="bubble_style"
-										className="baca-bot-select"
-										value={ formData.bubble_style }
-										onChange={ ( e ) => handleChange( 'bubble_style', e.target.value ) }
-									>
-										<option value="rounded">
-											{ __( 'Rounded (Default)', 'botisst-ai-chat-assistant' ) }
-										</option>
-										<option value="square">{ __( 'Square', 'botisst-ai-chat-assistant' ) }</option>
-										<option value="pill">{ __( 'Pill', 'botisst-ai-chat-assistant' ) }</option>
-									</select>
-									<p className="baca-bot-hint">
-										{ __( 'Controls the corner rounding of chat message bubbles.', 'botisst-ai-chat-assistant' ) }
-									</p>
-								</div>
-							</div>
-						</section>
-					</div>
 				</div>
 
 				<div className={ `baca-bot-panel ${ activeSubTab === 'advanced' ? '' : 'baca-kb-panel--hidden' }` }>
 					<section className="baca-bot-section">
 						<h2 className="baca-bot-section__title">
-							{ __( 'Active AI Provider', 'botisst-ai-chat-assistant' ) }
+							{ __( 'Security', 'botisst-ai-chat-assistant' ) }
 						</h2>
-						{ connectedProviders.length === 0 ? (
-							<div className="baca-bot-setting-card baca-bot-setting-card--warning">
-								<div className="baca-bot-setting-card__text">
-									<strong>{ __( 'No API Keys Connected', 'botisst-ai-chat-assistant' ) }</strong>
-									<span>
-										<a href="#api-keys" className="baca-bot-link">
-											{ __( 'Add API keys', 'botisst-ai-chat-assistant' ) }
-										</a>
-									</span>
-								</div>
-							</div>
-						) : (
-							<div className="baca-bot-setting-card">
-								<div className="baca-bot-setting-card__main">
-									<span className="baca-bot-provider-check dashicons dashicons-yes-alt" aria-hidden="true" />
-									<div className="baca-bot-setting-card__text">
-										<strong>{ activeProviderName }</strong>
-										<span>{ __( 'Automatic Model Selection', 'botisst-ai-chat-assistant' ) }</span>
-									</div>
-								</div>
-								{ connectedProviders.length > 1 && ! providerPickerOpen && (
-									<button
-										type="button"
-										className="baca-bot-link"
-										onClick={ () => setProviderPickerOpen( true ) }
-									>
-										{ __( 'Change', 'botisst-ai-chat-assistant' ) }
-									</button>
-								) }
-								{ providerPickerOpen && connectedProviders.length > 1 && (
-									<select
-										className="baca-bot-select baca-bot-select--inline"
-										value={ formData.default_provider }
-										onChange={ ( e ) => {
-											handleChange( 'default_provider', e.target.value );
-											setProviderPickerOpen( false );
-										} }
-									>
-										{ connectedProviders.map( ( p ) => (
-											<option key={ p.id } value={ p.id }>{ p.name }</option>
-										) ) }
-									</select>
-								) }
-							</div>
-						) }
+						<div className="baca-bot-field">
+							<label htmlFor="rate_limit_per_minute">
+								{ __( 'Chat Rate Limit (requests per minute per visitor)', 'botisst-ai-chat-assistant' ) }
+							</label>
+							<input
+								type="number"
+								id="rate_limit_per_minute"
+								className="baca-bot-input"
+								min="1"
+								max="300"
+								value={ formData.rate_limit_per_minute }
+								onChange={ ( e ) => handleChange( 'rate_limit_per_minute', parseInt( e.target.value, 10 ) || 1 ) }
+							/>
+							<p className="baca-bot-hint">
+								{ __( 'The public chat endpoint is throttled per visitor IP to stop it being used to run up your AI provider bill. Lower this if you\'re seeing abuse, or raise it if legitimate users are being blocked.', 'botisst-ai-chat-assistant' ) }
+							</p>
+						</div>
 					</section>
 
 					<section className="baca-bot-section">
@@ -361,6 +242,13 @@ export default function ChatbotSettingsTab( { settings, onSave, showNotice } ) {
 							__( 'Enable user session continuity', 'botisst-ai-chat-assistant' ),
 							formData.save_chat,
 							( v ) => handleChange( 'save_chat', v )
+						) }
+						{ formData.save_chat && renderToggleCard(
+							'ask_email',
+							__( 'Ask User Email', 'botisst-ai-chat-assistant' ),
+							__( 'Prompt user to enter their email to save chat continuity', 'botisst-ai-chat-assistant' ),
+							formData.ask_email ?? false,
+							( v ) => handleChange( 'ask_email', v )
 						) }
 						{ renderToggleCard(
 							'enable_pre_questions',
@@ -513,11 +401,97 @@ export default function ChatbotSettingsTab( { settings, onSave, showNotice } ) {
 				) }
 				</div>
 
+				<div className={ `baca-bot-panel ${ activeSubTab === 'style' ? '' : 'baca-kb-panel--hidden' }` }>
+					<div className="baca-bot-grid">
+						<section className="baca-bot-section">
+							<h2 className="baca-bot-section__title">
+								{ __( 'Bot Avatar', 'botisst-ai-chat-assistant' ) }
+							</h2>
+							<div className="baca-bot-avatar-card" style={ { margin: '0 auto' } }>
+								<div className="baca-bot-avatar-preview">
+									{ formData.bot_avatar ? (
+										<img src={ formData.bot_avatar } alt="" />
+									) : (
+										<span>{ avatarInitial }</span>
+									) }
+								</div>
+								<button
+									type="button"
+									className="baca-btn baca-btn-primary baca-bot-upload-btn"
+									onClick={ handleUploadImage }
+								>
+									<span className="dashicons dashicons-upload" aria-hidden="true" />
+									{ __( 'Upload New', 'botisst-ai-chat-assistant' ) }
+								</button>
+								{ !! formData.bot_avatar && (
+									<button
+										type="button"
+										className="baca-bot-remove-avatar"
+										onClick={ () => handleChange( 'bot_avatar', '' ) }
+									>
+										{ __( 'Remove', 'botisst-ai-chat-assistant' ) }
+									</button>
+								) }
+								<p className="baca-bot-hint baca-bot-hint--center">
+									{ __( 'JPG, PNG or SVG. Max size 2MB.', 'botisst-ai-chat-assistant' ) }
+								</p>
+							</div>
+						</section>
+
+						<section className="baca-bot-section">
+							<h2 className="baca-bot-section__title">
+								{ __( 'Branding & Styles', 'botisst-ai-chat-assistant' ) }
+							</h2>
+							<div className="baca-bot-col--stack">
+								<div className="baca-bot-field">
+									<label htmlFor="primary_color">
+										{ __( 'Primary Color', 'botisst-ai-chat-assistant' ) }
+									</label>
+									<div className="baca-bot-color-field">
+										<input
+											type="color"
+											id="primary_color"
+											className="baca-bot-color-picker"
+											value={ formData.primary_color }
+											onChange={ ( e ) => handleChange( 'primary_color', e.target.value ) }
+											aria-label={ __( 'Primary color', 'botisst-ai-chat-assistant' ) }
+										/>
+										<span className="baca-bot-color-value">{ formData.primary_color }</span>
+									</div>
+									<p className="baca-bot-hint">
+										{ __( 'Used for the chat header, launcher button, and your messages.', 'botisst-ai-chat-assistant' ) }
+									</p>
+								</div>
+
+								<div className="baca-bot-field">
+									<label htmlFor="bubble_style">
+										{ __( 'Chat Bubble Style', 'botisst-ai-chat-assistant' ) }
+									</label>
+									<select
+										id="bubble_style"
+										className="baca-bot-select"
+										value={ formData.bubble_style }
+										onChange={ ( e ) => handleChange( 'bubble_style', e.target.value ) }
+									>
+										<option value="rounded">
+											{ __( 'Rounded (Default)', 'botisst-ai-chat-assistant' ) }
+										</option>
+										<option value="square">{ __( 'Square', 'botisst-ai-chat-assistant' ) }</option>
+										<option value="pill">{ __( 'Pill', 'botisst-ai-chat-assistant' ) }</option>
+									</select>
+									<p className="baca-bot-hint">
+										{ __( 'Controls the corner rounding of chat message bubbles.', 'botisst-ai-chat-assistant' ) }
+									</p>
+								</div>
+							</div>
+						</section>
+					</div>
+				</div>
 				<footer className="baca-bot-footer">
-					<button type="submit" className="baca-btn baca-btn-primary" disabled={ saving }>
+					<button type="submit" className="baca-btn baca-btn-primary" disabled={ saving || ! isDirty }>
 						{ saving
 							? <><span className="baca-spinner" aria-hidden="true" /> { __( 'Saving…', 'botisst-ai-chat-assistant' ) }</>
-							: __( 'Save Bot Settings', 'botisst-ai-chat-assistant' ) }
+							: __( 'Save', 'botisst-ai-chat-assistant' ) }
 					</button>
 				</footer>
 			</form>

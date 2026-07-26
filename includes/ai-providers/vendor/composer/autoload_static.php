@@ -11,7 +11,6 @@ class ComposerStaticInit0c15de89bbcbdc743d04b692dfb5f11a
         array (
             'WordPress\\OpenAiAiProvider\\' => 27,
             'WordPress\\GoogleAiProvider\\' => 27,
-            'WordPress\\AnthropicAiProvider\\' => 30,
         ),
     );
 
@@ -23,10 +22,6 @@ class ComposerStaticInit0c15de89bbcbdc743d04b692dfb5f11a
         'WordPress\\GoogleAiProvider\\' => 
         array (
             0 => __DIR__ . '/..' . '/wordpress/ai-provider-for-google/src',
-        ),
-        'WordPress\\AnthropicAiProvider\\' => 
-        array (
-            0 => __DIR__ . '/..' . '/wordpress/ai-provider-for-anthropic/src',
         ),
     );
 

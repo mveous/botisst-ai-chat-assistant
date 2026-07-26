@@ -74,16 +74,79 @@ class BACA_RAG_Engine {
 	/**
 	 * Process Pending Embeddings
 	 *
-	 * Generates embeddings for all pending chunks.
+	 * Generates embeddings for one batch of pending chunks.
 	 *
+	 * @param int $batch_size Maximum chunks to embed this call.
 	 * @return array Status of embedding generation
 	 */
-	public function process_pending_embeddings() {
+	public function process_pending_embeddings( $batch_size = 50 ) {
 		if ( ! $this->is_enabled() ) {
 			return [ 'success' => false, 'message' => 'RAG system is not enabled' ];
 		}
 
-		return $this->indexer->generate_pending_embeddings();
+		return $this->indexer->generate_pending_embeddings( $batch_size );
+	}
+
+	/**
+	 * Start Index Job
+	 *
+	 * Queues a background indexing job for the given post types and kicks
+	 * off the first processing tick. Returns immediately — the actual
+	 * indexing and embedding happen in small batches via chained
+	 * wp_schedule_single_event calls, so callers (e.g. the REST handler)
+	 * never block on a per-chunk embedding API call.
+	 *
+	 * @param array $post_types Post types to index.
+	 * @return array Queue summary, e.g. ['total' => 42].
+	 */
+	public function start_index_job( $post_types ) {
+		$result = $this->indexer->queue_index_job( $post_types );
+
+		wp_schedule_single_event( time(), 'baca_rag_process_index_batch' );
+
+		return $result;
+	}
+
+	/**
+	 * Get Index Progress
+	 *
+	 * @return array Snapshot of the current/most recent background indexing job.
+	 */
+	public function get_index_progress() {
+		return $this->indexer->get_index_progress();
+	}
+
+	/**
+	 * Process Index Batch Tick
+	 *
+	 * One step of the background indexing job: indexes a small batch of
+	 * queued posts, or (once the queue is empty) embeds a batch of pending
+	 * chunks. Reschedules itself while work remains, so a full-site index
+	 * never blocks a single request.
+	 *
+	 * @return void
+	 */
+	public function process_index_batch_tick() {
+		$status = $this->indexer->get_index_progress()['status'];
+
+		if ( 'indexing' === $status ) {
+			$result = $this->indexer->process_index_batch( 5 );
+
+			if ( $result['remaining'] > 0 ) {
+				wp_schedule_single_event( time() + 5, 'baca_rag_process_index_batch' );
+				return;
+			}
+
+			$status = 'embedding';
+		}
+
+		if ( 'embedding' === $status ) {
+			$result = $this->indexer->generate_pending_embeddings( 50 );
+
+			if ( ! empty( $result['remaining'] ) ) {
+				wp_schedule_single_event( time() + 5, 'baca_rag_process_index_batch' );
+			}
+		}
 	}
 
 	/**
@@ -100,6 +163,7 @@ class BACA_RAG_Engine {
 
 		add_action( 'baca_rag_auto_index', [ $this, 'auto_index_documents' ] );
 		add_action( 'baca_rag_process_embeddings', [ $this, 'process_pending_embeddings' ] );
+		add_action( 'baca_rag_process_index_batch', [ $this, 'process_index_batch_tick' ] );
 		add_action( 'baca_rag_reindex_post', [ $this, 'on_post_reindex' ], 10, 1 );
 		add_action( 'transition_post_status', [ $this, 'on_post_status_change' ], 10, 3 );
 		add_action( 'delete_post', [ $this, 'on_post_delete' ], 10, 1 );
@@ -145,7 +209,6 @@ class BACA_RAG_Engine {
 		try {
 			$query_embedding = $this->embedding_manager->embed( $query );
 			if ( ! $query_embedding ) {
-				error_log( 'RAG: Failed to generate query embedding for: ' . substr( $query, 0, 100 ) );
 				return [];
 			}
 
@@ -153,7 +216,9 @@ class BACA_RAG_Engine {
 
 			return $documents;
 		} catch ( Exception $e ) {
-			error_log( 'RAG Context Retrieval Error: ' . $e->getMessage() );
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( 'Botisst AI RAG Engine Search Error: ' . $e->getMessage() ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Allowed under WP_DEBUG constraint.
+			}
 			return [];
 		}
 	}
@@ -189,8 +254,8 @@ class BACA_RAG_Engine {
 			return;
 		}
 
-		$this->indexer->index_all_documents();
-		$this->process_pending_embeddings();
+		$post_types = ! empty( $settings['post_types'] ) ? $settings['post_types'] : [ 'post', 'page' ];
+		$this->start_index_job( $post_types );
 	}
 
 	/**
@@ -284,8 +349,12 @@ class BACA_RAG_Engine {
 			return;
 		}
 
+		// index_post() embeds each chunk inline and marks it completed, so
+		// there's nothing left pending here. Avoid calling
+		// process_pending_embeddings() — with no pending chunks it would
+		// mark index_status "completed", which could clobber an in-progress
+		// bulk indexing job's progress tracking.
 		$this->indexer->index_post( $post );
-		$this->process_pending_embeddings();
 	}
 
 }

@@ -3,6 +3,31 @@ import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 import ReactMarkdown from 'react-markdown';
 
+const linkifyText = (text) => {
+    if (!text) return '';
+
+    // Split by markdown link or HTML tag to avoid replacing URLs inside them
+    const parts = text.split(/(\[[^\]]+\]\([^)]+\)|<[^>]+>)/g);
+    return parts.map(part => {
+        // If this part is a markdown link or an HTML tag, return it unmodified
+        if (/^\[.+\]\(.+\)$/.test(part) || /^<.+>$/.test(part)) {
+            return part;
+        }
+        // Otherwise, find raw URLs and convert them to markdown links
+        const urlRegex = /(https?:\/\/[^\s\)<>"]+)/gi;
+        return part.replace(urlRegex, (match) => {
+            let url = match;
+            let suffix = '';
+            const punctuation = /[.,;:!]$/;
+            if (punctuation.test(url)) {
+                suffix = url.slice(-1);
+                url = url.slice(0, -1);
+            }
+            return `[${url}](${url})${suffix}`;
+        });
+    }).join('');
+};
+
 export default function ChatWidget({ settings, inline }) {
     const bot = settings?.chatbot || {};
     const disp = settings?.display || {};
@@ -14,7 +39,7 @@ export default function ChatWidget({ settings, inline }) {
         return template.replace('{support_url}', supportUrl);
     };
 
-    const suggestedQuestions = bot.enable_pre_questions !== false ? [
+    const suggestedQuestions = bot.enable_pre_questions ? [
         bot.pre_question_1,
         bot.pre_question_2,
         bot.pre_question_3,
@@ -24,12 +49,12 @@ export default function ChatWidget({ settings, inline }) {
     const [isOpen, setIsOpen] = useState(false);
     const [input, setInput] = useState('');
     const [isTyping, setIsTyping] = useState(false);
-    
+
     const [sessionId, setSessionId] = useState(() => {
-        return 'sess_' + Math.random().toString(36).substr(2, 9);
+        return window.baca_frontend_data?.session_id || ('sess_' + Math.random().toString(36).substr(2, 9));
     });
 
-    const [clearAllowed, setClearAllowed] = useState(true);
+    const [clearAllowed, setClearAllowed] = useState(() => window.baca_frontend_data?.clear_allowed ?? true);
 
     const [messages, setMessages] = useState([]);
 
@@ -43,6 +68,13 @@ export default function ChatWidget({ settings, inline }) {
     const messagesEndRef = useRef(null);
     const textareaRef = useRef(null);
     const widgetRef = useRef(null);
+    const isMountedRef = useRef(true);
+
+    useEffect(() => {
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -108,6 +140,8 @@ export default function ChatWidget({ settings, inline }) {
                     data: { prompt: msgToSend, session_id: sessionId, email: trimmed }
                 });
 
+                if (!isMountedRef.current) return;
+
                 if (response.success) {
                     if (response.session_id && response.session_id !== sessionId) {
                         setSessionId(response.session_id);
@@ -125,53 +159,57 @@ export default function ChatWidget({ settings, inline }) {
                     setMessages(prev => [...prev, { role: 'error', content: getErrorMessage() }]);
                 }
             } catch (error) {
-                setMessages(prev => [...prev, { role: 'error', content: getErrorMessage() }]);
+                if (isMountedRef.current) {
+                    setMessages(prev => [...prev, { role: 'error', content: getErrorMessage() }]);
+                }
             } finally {
-                setIsTyping(false);
+                if (isMountedRef.current) {
+                    setIsTyping(false);
+                }
             }
         }
     };
 
     const handleClearChat = async () => {
-        if (window.confirm(__('Are you sure you want to clear the chat history?', 'botisst-ai-chat-assistant'))) {
-            try {
-                // Call PHP REST API to clear session and re-initialize cookies
-                const response = await apiFetch({
-                    path: '/baca/v1/clear-session',
-                    method: 'POST'
-                });
-                
-                if (response.success && response.session_id) {
-                    // Reset React states
-                    setMessages([]);
-                    setSessionId(response.session_id);
-                    setUserEmail('');
-                    setEmailInput('');
-                    setPendingMessage('');
-                    setClearAllowed(true);
-                }
-            } catch (error) {
-                // Local fallback in case of connection failure
+        try {
+            // Call PHP REST API to clear session and re-initialize cookies
+            const response = await apiFetch({
+                path: '/baca/v1/clear-session',
+                method: 'POST'
+            });
+
+            if (response.success && response.session_id) {
+                // Reset React states
                 setMessages([]);
+                setSessionId(response.session_id);
                 setUserEmail('');
                 setEmailInput('');
                 setPendingMessage('');
-                const newSid = 'sess_' + Math.random().toString(36).substr(2, 9);
-                setSessionId(newSid);
                 setClearAllowed(true);
             }
+        } catch (error) {
+            // Local fallback in case of connection failure
+            setMessages([]);
+            setUserEmail('');
+            setEmailInput('');
+            setPendingMessage('');
+            const newSid = 'sess_' + Math.random().toString(36).substr(2, 9);
+            setSessionId(newSid);
+            setClearAllowed(true);
         }
     };
 
     const saveChatEnabled = !!bot.save_chat;
+    const askEmailEnabled = saveChatEnabled && !!bot.ask_email;
 
     const handleSend = async (e, directText = null) => {
         if (e) e.preventDefault();
+        if (isTyping) return;
         const text = (directText !== null ? directText : input).trim();
         if (!text) return;
 
-        // If we don't have an email yet and database saving is enabled, save the user message, set pending, and wait for email input
-        if (saveChatEnabled && !userEmail) {
+        // If we don't have an email yet and database saving + email asking are enabled, save the user message, set pending, and wait for email input
+        if (askEmailEnabled && !userEmail) {
             setMessages([{ role: 'user', content: text }]);
             setPendingMessage(text);
             setInput('');
@@ -195,6 +233,8 @@ export default function ChatWidget({ settings, inline }) {
                 data: { prompt: text, session_id: sessionId, email: userEmail }
             });
 
+            if (!isMountedRef.current) return;
+
             if (response.success) {
                 if (response.session_id && response.session_id !== sessionId) {
                     setSessionId(response.session_id);
@@ -212,9 +252,13 @@ export default function ChatWidget({ settings, inline }) {
                 setMessages(prev => [...prev, { role: 'error', content: getErrorMessage() }]);
             }
         } catch (error) {
-            setMessages(prev => [...prev, { role: 'error', content: getErrorMessage() }]);
+            if (isMountedRef.current) {
+                setMessages(prev => [...prev, { role: 'error', content: getErrorMessage() }]);
+            }
         } finally {
-            setIsTyping(false);
+            if (isMountedRef.current) {
+                setIsTyping(false);
+            }
         }
     };
 
@@ -222,7 +266,7 @@ export default function ChatWidget({ settings, inline }) {
     const avatarSrc = bot.bot_avatar || '';
     const bubbleClass = `baca-bubble-${bot.bubble_style || 'rounded'}`;
     const isWithin30Mins = clearAllowed;
-    const showEmailForm = saveChatEnabled && !userEmail && messages.length > 0;
+    const showEmailForm = askEmailEnabled && !userEmail && messages.length > 0;
 
     return (
         <div ref={widgetRef} className={`baca-chat-wrapper ${inline ? 'baca-chat-inline' : `baca-chat-floating ${disp.position}`}`} style={{ '--baca-primary': primaryColor }}>
@@ -261,9 +305,9 @@ export default function ChatWidget({ settings, inline }) {
                         {messages.length === 0 && suggestedQuestions.length > 0 && (
                             <div className="baca-suggested-questions">
                                 {suggestedQuestions.map((q, idx) => (
-                                    <button 
-                                        key={idx} 
-                                        type="button" 
+                                    <button
+                                        key={idx}
+                                        type="button"
                                         className={`baca-suggested-question-btn baca-suggested-question-btn--${bot.pre_questions_border_radius || 'rounded'}`}
                                         style={{
                                             backgroundColor: bot.pre_questions_bg_color || '#ffffff',
@@ -283,19 +327,19 @@ export default function ChatWidget({ settings, inline }) {
                                     <div className="baca-message-content">
                                         <ReactMarkdown
                                             components={{
-                                                a: ({node, ...props}) => (
+                                                a: ({ node, ...props }) => (
                                                     <a {...props} target="_blank" rel="noopener noreferrer" />
                                                 ),
-                                                p: ({node, ...props}) => <p {...props} />,
-                                                h3: ({node, ...props}) => <h3 {...props} />,
-                                                strong: ({node, ...props}) => <strong {...props} />,
-                                                em: ({node, ...props}) => <em {...props} />,
-                                                ul: ({node, ...props}) => <ul {...props} />,
-                                                li: ({node, ...props}) => <li {...props} />,
-                                                hr: ({node, ...props}) => <hr {...props} />,
+                                                p: ({ node, ...props }) => <p {...props} />,
+                                                h3: ({ node, ...props }) => <h3 {...props} />,
+                                                strong: ({ node, ...props }) => <strong {...props} />,
+                                                em: ({ node, ...props }) => <em {...props} />,
+                                                ul: ({ node, ...props }) => <ul {...props} />,
+                                                li: ({ node, ...props }) => <li {...props} />,
+                                                hr: ({ node, ...props }) => <hr {...props} />,
                                             }}
                                         >
-                                            {msg.content}
+                                            {linkifyText(msg.content)}
                                         </ReactMarkdown>
                                     </div>
                                 ) : (
@@ -318,7 +362,7 @@ export default function ChatWidget({ settings, inline }) {
                             <form className="baca-email-capture-form" onSubmit={handleEmailSubmit}>
                                 <h3>{__('One last step!', 'botisst-ai-chat-assistant')}</h3>
                                 <p>{__('Please enter your email to get your response and continue.', 'botisst-ai-chat-assistant')}</p>
-                                
+
                                 <div className="baca-email-input-group">
                                     <input
                                         type="email"
@@ -333,7 +377,7 @@ export default function ChatWidget({ settings, inline }) {
                                     />
                                     {emailError && <span className="baca-email-error">{emailError}</span>}
                                 </div>
-                                
+
                                 <button type="submit" className="baca-email-submit" style={{ background: primaryColor }}>
                                     {__('Get Response', 'botisst-ai-chat-assistant')}
                                 </button>
@@ -341,9 +385,9 @@ export default function ChatWidget({ settings, inline }) {
                         </div>
                     ) : (
                         <div className="baca-chat-input-area">
-                            <textarea 
+                            <textarea
                                 ref={textareaRef}
-                                className="baca-chat-input" 
+                                className="baca-chat-input"
                                 value={input}
                                 onChange={(e) => {
                                     setInput(e.target.value);
@@ -356,11 +400,12 @@ export default function ChatWidget({ settings, inline }) {
                                         handleSend(e);
                                     }
                                 }}
-                                placeholder={__('Type a message...', 'botisst-ai-chat-assistant')} 
+                                placeholder={__('Type a message...', 'botisst-ai-chat-assistant')}
                                 rows={1}
+                                disabled={isTyping}
                                 style={{ resize: 'none', overflowY: 'auto', minHeight: '44px', lineHeight: '20px', padding: '12px 20px', boxSizing: 'border-box' }}
                             />
-                            <button className="baca-chat-send" onClick={handleSend} aria-label={__('Send message', 'botisst-ai-chat-assistant')}>
+                            <button className="baca-chat-send" onClick={handleSend} disabled={isTyping} aria-label={__('Send message', 'botisst-ai-chat-assistant')}>
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                     <path
                                         d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"
@@ -376,7 +421,7 @@ export default function ChatWidget({ settings, inline }) {
                 </div>
             )}
 
-            {!inline && (
+            {!inline && !isOpen && (
                 <div id="baca-launcher" className="baca-chat-launcher" onClick={toggleChat} style={{ background: primaryColor }}>
                     <span className="baca-launcher-text">{disp.launcher_text}</span>
                     <span className="dashicons dashicons-format-chat"></span>

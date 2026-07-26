@@ -1,12 +1,11 @@
 import { useState, useEffect } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 import { ConfirmDialog } from './ui';
 
 const SUB_TABS = [
 	{ id: 'sources', label: __( 'Sources', 'botisst-ai-chat-assistant' ) },
-	{ id: 'vector-db', label: __( 'Vector Database', 'botisst-ai-chat-assistant' ) },
-	{ id: 'indexing', label: __( 'Indexing Rules', 'botisst-ai-chat-assistant' ) },
+	{ id: 'vector-db', label: __( 'Database', 'botisst-ai-chat-assistant' ) },
 ];
 
 const TEXT_KNOWLEDGE_HINT = __(
@@ -22,6 +21,7 @@ const URLS_HINT = __(
 export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 	const [saving, setSaving] = useState(false);
 	const [indexing, setIndexing] = useState(false);
+	const [indexProgress, setIndexProgress] = useState(null);
 	const [stats, setStats] = useState(null);
 	const [postTypes, setPostTypes] = useState([]);
 	const [activeSubTab, setActiveSubTab] = useState('sources');
@@ -64,9 +64,61 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 		ragSettings.vector_db?.index_name || ''
 	);
 
-	const [embeddingProviderName, setEmbeddingProviderName] = useState(
-		ragSettings.embeddings?.provider || 'openai'
-	);
+	const getPreferredEmbeddingProvider = (allSettings = {}) => {
+		const apiKeys = allSettings.api_keys || {};
+		const savedEmbeddingProvider = allSettings.rag?.embeddings?.provider;
+
+		if (savedEmbeddingProvider) {
+			return savedEmbeddingProvider;
+		}
+
+		if (allSettings.chatbot?.default_provider) {
+			return allSettings.chatbot.default_provider;
+		}
+
+		if (apiKeys.google && !apiKeys.openai) {
+			return 'google';
+		}
+
+		if (apiKeys.openai && !apiKeys.google) {
+			return 'openai';
+		}
+
+		return 'openai';
+	};
+
+	// Snapshot of the last-saved (or just-loaded) form state, used to decide
+	// whether the Save button should be enabled — it stays disabled until
+	// something actually differs from this baseline.
+	const [baseline, setBaseline] = useState({
+		knowledgeText: botSettings.knowledge_text || '',
+		urls: Array.isArray(botSettings.knowledge_urls) && botSettings.knowledge_urls.length ? botSettings.knowledge_urls : [],
+		trainingFiles: Array.isArray(botSettings.training_files) ? botSettings.training_files : [],
+		selectedPostTypes: ragSettings.post_types || ['post', 'page'],
+		maxChunkSize: ragSettings.chunk_size || 1000,
+		maxResults: ragSettings.max_results || 5,
+		vectorDb: ragSettings.vector_db?.provider || 'sqlite',
+		requireIndexedData: ragSettings.require_indexed_data || false,
+		noDataMessage: ragSettings.no_data_message || 'I don\'t have information about your question in my knowledge base. Please rephrase or ask about topics I have knowledge of.',
+		pineconeApiKey: ragSettings.vector_db?.api_key || '',
+		pineconeHost: ragSettings.vector_db?.host || '',
+		pineconeIndexName: ragSettings.vector_db?.index_name || '',
+		embeddingProviderName: getPreferredEmbeddingProvider(settings),
+	});
+
+	const [embeddingProviderName, setEmbeddingProviderName] = useState(() => getPreferredEmbeddingProvider(settings));
+
+	useEffect(() => {
+		if (!ragSettings.embeddings?.provider) {
+			const derived = getPreferredEmbeddingProvider(settings);
+			setEmbeddingProviderName(derived);
+			// This is an automatic re-derivation, not a user edit, so keep
+			// the dirty-check baseline in lockstep instead of it looking
+			// like an unsaved change.
+			setBaseline((prev) => ({ ...prev, embeddingProviderName: derived }));
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [settings?.api_keys?.openai, settings?.api_keys?.google, settings?.chatbot?.default_provider, ragSettings.embeddings?.provider]);
 
 	// Get dimensions and model based on explicit selection
 	const getEmbeddingProviderInfo = () => {
@@ -74,7 +126,7 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 		const apiKeys = allSettings.api_keys || {};
 
 		if (embeddingProviderName === 'google') {
-			const hasKey = !!apiKeys.google || !!apiKeys.anthropic; // Anthropic falls back to Google
+			const hasKey = !!apiKeys.google; // Only check Google key
 			return { 
 				provider: 'Google Gemini', 
 				model: 'gemini-embedding-001', 
@@ -94,20 +146,40 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 
 	const embeddingProvider = getEmbeddingProviderInfo();
 
-	// Index what to include checkboxes. "website" is derived from whether any
-	// post type is selected below, instead of being a separate toggle, since
-	// the two controls previously had to be set in sync to take effect.
-	const [indexWhat, setIndexWhat] = useState({
-		knowledge_text: true,
-		urls: true,
-		files: true,
-	});
+	// Combined snapshot of every field the Save button persists, compared
+	// against `baseline` to decide whether Save should be enabled.
+	const currentSnapshot = {
+		knowledgeText,
+		urls,
+		trainingFiles: trainingFiles.map((f) => (typeof f === 'object' ? f.id : f)),
+		selectedPostTypes,
+		maxChunkSize,
+		maxResults,
+		vectorDb,
+		requireIndexedData,
+		noDataMessage,
+		pineconeApiKey,
+		pineconeHost,
+		pineconeIndexName,
+		embeddingProviderName,
+	};
+	const isDirty = JSON.stringify(currentSnapshot) !== JSON.stringify(baseline);
+
+	// Whether the currently selected post types differ from what's actually
+	// indexed right now (as reported by the server) — e.g. a type was just
+	// checked/unchecked and saved but "Index Content Now" hasn't run yet.
+	const indexedPostTypes = stats?.indexed_post_types || [];
+	const postTypesNeedReindex = !!stats && (() => {
+		if (selectedPostTypes.length !== indexedPostTypes.length) {
+			return true;
+		}
+		const indexedSet = new Set(indexedPostTypes);
+		return selectedPostTypes.some((pt) => !indexedSet.has(pt));
+	})();
 
 	const vectorDatabaseOptions = [
 		{ value: 'sqlite', label: __('SQLite (Local)', 'botisst-ai-chat-assistant'), desc: __('Local vector storage - no setup needed', 'botisst-ai-chat-assistant') },
 		{ value: 'pinecone', label: __('Pinecone (Cloud)', 'botisst-ai-chat-assistant'), desc: __('Managed cloud service - requires API key', 'botisst-ai-chat-assistant') },
-		// { value: 'weaviate', label: __('Weaviate', 'botisst-ai-chat-assistant'), desc: __('Self-hosted or cloud - requires host URL', 'botisst-ai-chat-assistant') },
-		// { value: 'milvus', label: __('Milvus', 'botisst-ai-chat-assistant'), desc: __('Open-source - requires host and port', 'botisst-ai-chat-assistant') },
 	];
 
 	useEffect(() => {
@@ -160,14 +232,44 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 		});
 	};
 
+	// Indexing and embedding now run in background batches on the server
+	// (see baca_index_rag_content), so the REST call returns immediately
+	// with status "queued" and we poll for progress instead of assuming
+	// the work is done when the request resolves.
+	const pollIndexStatus = () => {
+		const poll = async () => {
+			let response;
+			try {
+				response = await apiFetch({ path: '/baca/v1/rag/index/status', method: 'GET' });
+				setIndexProgress(response);
+			} catch (error) {
+				console.error('Failed to fetch indexing status:', error);
+				setIndexing(false);
+				return;
+			}
+
+			if (response.status === 'indexing' || response.status === 'embedding') {
+				setTimeout(poll, 2000);
+				return;
+			}
+
+			setIndexing(false);
+			fetchRAGStats();
+		};
+
+		poll();
+	};
+
 	const handleIndexContent = async () => {
 		const indexWebsite = selectedPostTypes.length > 0;
 		const typesToIndex = indexWebsite ? [...selectedPostTypes] : [];
 
+		// knowledge_text/urls/files are always included; only "website" is
+		// conditional on whether any post type is selected below.
 		const indexSources = {
-			knowledge_text: indexWhat.knowledge_text,
-			urls: indexWhat.urls,
-			files: indexWhat.files,
+			knowledge_text: true,
+			urls: true,
+			files: true,
 			website: indexWebsite,
 		};
 
@@ -177,6 +279,7 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 		}
 
 		setIndexing(true);
+		setIndexProgress(null);
 		try {
 			const response = await apiFetch({
 				path: '/baca/v1/rag/index',
@@ -189,23 +292,68 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 				},
 			});
 
-			if (!response.success || (response.failed && response.failed > 0)) {
-				showNotice(response.message || __('Failed to index all content', 'botisst-ai-chat-assistant'), 'error');
-			} else {
-				showNotice(response.message || __('Content indexing started!', 'botisst-ai-chat-assistant'));
+			if (!response.success) {
+				showNotice(response.message || __('Failed to start indexing', 'botisst-ai-chat-assistant'), 'error');
+				setIndexing(false);
+				return;
 			}
-			
-			setTimeout(() => fetchRAGStats(), 1000);
+
+			showNotice(response.message || __('Content indexing started!', 'botisst-ai-chat-assistant'));
+
+			if (response.status === 'queued') {
+				pollIndexStatus();
+			} else {
+				setIndexing(false);
+				fetchRAGStats();
+			}
 		} catch (error) {
 			console.error('Indexing error:', error);
 			showNotice(
 				error.message || __('Failed to index content', 'botisst-ai-chat-assistant'),
 				'error'
 			);
-		} finally {
 			setIndexing(false);
 		}
 	};
+
+	const indexProgressPercent = (() => {
+		if (!indexProgress) {
+			return 0;
+		}
+		if (indexProgress.status === 'indexing' && indexProgress.docs_total > 0) {
+			return Math.round((indexProgress.docs_processed / indexProgress.docs_total) * 100);
+		}
+		if (indexProgress.status === 'embedding' && indexProgress.embed_total > 0) {
+			return Math.round((indexProgress.embed_processed / indexProgress.embed_total) * 100);
+		}
+		if (indexProgress.status === 'completed') {
+			return 100;
+		}
+		return 0;
+	})();
+
+	const indexProgressLabel = (() => {
+		if (!indexProgress) {
+			return '';
+		}
+		if (indexProgress.status === 'indexing') {
+			return sprintf(
+				__('Indexing documents… %1$d/%2$d', 'botisst-ai-chat-assistant'),
+				indexProgress.docs_processed,
+				indexProgress.docs_total
+			);
+		}
+		if (indexProgress.status === 'embedding') {
+			return indexProgress.embed_total > 0
+				? sprintf(
+					__('Generating embeddings… %1$d/%2$d', 'botisst-ai-chat-assistant'),
+					indexProgress.embed_processed,
+					indexProgress.embed_total
+				)
+				: __('Generating embeddings…', 'botisst-ai-chat-assistant');
+		}
+		return '';
+	})();
 
 	const handleSubmit = async (e) => {
 		e.preventDefault();
@@ -278,7 +426,12 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 				chatbot: { ...botSettings, ...botPayload },
 				rag: { ...ragSettings, ...ragPayload }
 			});
-			showNotice(__('Knowledge base and RAG settings saved successfully!', 'botisst-ai-chat-assistant'));
+			setBaseline(currentSnapshot);
+			showNotice(
+				postTypesNeedReindex
+					? __('Settings saved! Please re-index your content to apply the changes.', 'botisst-ai-chat-assistant')
+					: __('Knowledge base and RAG settings saved successfully!', 'botisst-ai-chat-assistant')
+			);
 		} catch (error) {
 			console.error('Save error:', error);
 			showNotice(error.message || __('Failed to save settings', 'botisst-ai-chat-assistant'), 'error');
@@ -378,13 +531,62 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 				<div className={activeSubTab === 'vector-db' ? '' : 'baca-kb-panel--hidden'}>
 				{/* Vector Database Selection */}
 				<article className="baca-kb-card">
+						<header className="baca-kb-card__header">
+							<span className="baca-kb-card__icon" aria-hidden="true">
+								<span className="dashicons dashicons-media-text" />
+							</span>
+							<div className="baca-kb-card__heading">
+								<h3 className="baca-kb-card__title">
+									{__('Website Content to Index', 'botisst-ai-chat-assistant')}
+								</h3>
+								<p className="baca-kb-card__desc">
+									{__('Select which post types to include. Leave all unchecked to skip indexing your website content.', 'botisst-ai-chat-assistant')}
+								</p>
+							</div>
+						</header>
+						<div className="baca-kb-card__body">
+							<div className="baca-kb-post-types">
+								{postTypes.length > 0 ? (
+									postTypes.map((pt) => (
+										<label key={pt.value} className="baca-checkbox">
+											<input
+												type="checkbox"
+												checked={selectedPostTypes.includes(pt.value)}
+												onChange={() => handleTogglePostType(pt.value)}
+											/>
+											<span className="baca-checkbox__label">
+												{pt.label} ({pt.count})
+											</span>
+										</label>
+									))
+								) : (
+									<p className="baca-hint">{__('No post types available.', 'botisst-ai-chat-assistant')}</p>
+								)}
+							</div>
+
+							{indexing && indexProgress && (
+								<div className="baca-kb-index-progress" role="status">
+									<div className="baca-kb-index-progress__bar">
+										<div
+											className="baca-kb-index-progress__fill"
+											style={{ width: `${indexProgressPercent}%` }}
+										/>
+									</div>
+									<p className="baca-kb-index-progress__label">
+										{indexProgressLabel}
+									</p>
+								</div>
+							)}
+						</div>
+					</article>
+				<article className="baca-kb-card">
 					<header className="baca-kb-card__header">
 						<span className="baca-kb-card__icon" aria-hidden="true">
 							<span className="dashicons dashicons-database" />
 						</span>
 						<div className="baca-kb-card__heading">
 							<h3 className="baca-kb-card__title">
-								{__('Vector Database', 'botisst-ai-chat-assistant')}
+								{__('Database', 'botisst-ai-chat-assistant')}
 							</h3>
 							<p className="baca-kb-card__desc">
 								{__('Choose where to store your document embeddings for semantic search.', 'botisst-ai-chat-assistant')}
@@ -423,8 +625,26 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 									<span className="dashicons dashicons-cloud" />
 								</span>
 								<div className="baca-kb-card__heading" style={{ minWidth: 0 }}>
-									<h3 className="baca-kb-card__title">
+									<h3 className="baca-kb-card__title" style={{ display: 'flex', alignItems: 'center' }}>
 										{__('Pinecone Configuration', 'botisst-ai-chat-assistant')}
+										{embeddingProvider.dimensions && (
+											<div className="baca-info-tooltip-wrapper">
+												<button
+													type="button"
+													className="baca-info-btn"
+													aria-label={__('Dimensions info', 'botisst-ai-chat-assistant')}
+												>
+													i
+												</button>
+												<div className="baca-info-tooltip">
+													{sprintf(
+														__('Because you selected %1$s, your Pinecone index must be created with exactly %2$d dimensions.', 'botisst-ai-chat-assistant'),
+														embeddingProvider.provider,
+														embeddingProvider.dimensions
+													)}
+												</div>
+											</div>
+										)}
 									</h3>
 									<p className="baca-kb-card__desc" style={{ margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
 										{__('Connect your Pinecone cloud vector database.', 'botisst-ai-chat-assistant')} 
@@ -448,19 +668,6 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 						</header>
 
 						<div className="baca-kb-card__body">
-
-							{embeddingProvider.dimensions && (
-								<div className="baca-kb-info-block">
-									<p>
-										<strong>{__('Important:', 'botisst-ai-chat-assistant')}</strong>
-										{' '}
-										{__('Because you are using', 'botisst-ai-chat-assistant')} <strong>{embeddingProvider.provider}</strong>, {__('you must create your Pinecone index with exactly', 'botisst-ai-chat-assistant')} <strong>{embeddingProvider.dimensions} {__('dimensions', 'botisst-ai-chat-assistant')}</strong>.
-									</p>
-									<p>
-										<em>{__('Note: If you change your API provider later, you must delete your Pinecone index, create a new one with the new dimensions, and click "Index Content" again.', 'botisst-ai-chat-assistant')}</em>
-									</p>
-								</div>
-							)}
 
 							<div className="baca-kb-form-group">
 								<label className="baca-label">
@@ -547,17 +754,37 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 					</header>
 					<div className="baca-kb-card__body">
 						<div className="baca-kb-form-group">
-							<label className="baca-label">
-								{__('Embedding Provider', 'botisst-ai-chat-assistant')}
-								<select
-									className="baca-select baca-kb-embedding-select"
-									value={embeddingProviderName}
-									onChange={(e) => setEmbeddingProviderName(e.target.value)}
-								>
-									<option value="openai">{__('OpenAI (text-embedding-3-small)', 'botisst-ai-chat-assistant')}</option>
-									<option value="google">{__('Google Gemini (gemini-embedding-001)', 'botisst-ai-chat-assistant')}</option>
-								</select>
-							</label>
+							<div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.375rem' }}>
+								<label className="baca-label" style={{ marginBottom: 0 }}>
+									{__('Embedding Provider', 'botisst-ai-chat-assistant')}
+								</label>
+								{vectorDb === 'pinecone' && (
+									<div className="baca-info-tooltip-wrapper">
+										<button
+											type="button"
+											className="baca-info-btn"
+											aria-label={__('Dimensions info', 'botisst-ai-chat-assistant')}
+										>
+											i
+										</button>
+										<div className="baca-info-tooltip">
+											{sprintf(
+												__('Because you selected %1$s, your Pinecone index must be created with exactly %2$d dimensions.', 'botisst-ai-chat-assistant'),
+												embeddingProviderName === 'google' ? __('Google Gemini (gemini-embedding-001)', 'botisst-ai-chat-assistant') : __('OpenAI (text-embedding-3-small)', 'botisst-ai-chat-assistant'),
+												embeddingProviderName === 'google' ? 768 : 1536
+											)}
+										</div>
+									</div>
+								)}
+							</div>
+							<select
+								className="baca-select baca-kb-embedding-select"
+								value={embeddingProviderName}
+								onChange={(e) => setEmbeddingProviderName(e.target.value)}
+							>
+								<option value="openai">{__('OpenAI (text-embedding-3-small)', 'botisst-ai-chat-assistant')}</option>
+								<option value="google">{__('Google Gemini (gemini-embedding-001)', 'botisst-ai-chat-assistant')}</option>
+							</select>
 							<p className="baca-hint">
 								{__('Select the provider to use for processing your knowledge base into vectors.', 'botisst-ai-chat-assistant')}
 							</p>
@@ -589,55 +816,14 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 				</article>
 				</div>
 
-				<div className={activeSubTab === 'indexing' ? '' : 'baca-kb-panel--hidden'}>
-
-				{/* RAG Content to Index */}
-				<article className="baca-kb-card">
-						<header className="baca-kb-card__header">
-							<span className="baca-kb-card__icon" aria-hidden="true">
-								<span className="dashicons dashicons-media-text" />
-							</span>
-							<div className="baca-kb-card__heading">
-								<h3 className="baca-kb-card__title">
-									{__('Website Content to Index', 'botisst-ai-chat-assistant')}
-								</h3>
-								<p className="baca-kb-card__desc">
-									{__('Select which post types to include. Leave all unchecked to skip indexing your website content.', 'botisst-ai-chat-assistant')}
-								</p>
-							</div>
-						</header>
-						<div className="baca-kb-card__body">
-							<div className="baca-kb-post-types">
-								{postTypes.length > 0 ? (
-									postTypes.map((pt) => (
-										<label key={pt.value} className="baca-checkbox">
-											<input
-												type="checkbox"
-												checked={selectedPostTypes.includes(pt.value)}
-												onChange={() => handleTogglePostType(pt.value)}
-											/>
-											<span className="baca-checkbox__label">
-												{pt.label} ({pt.count})
-											</span>
-										</label>
-									))
-								) : (
-									<p className="baca-hint">{__('No post types available.', 'botisst-ai-chat-assistant')}</p>
-								)}
-							</div>
-						</div>
-					</article>
-				</div>
-
 				<footer className="baca-kb-footer">
-					<button type="submit" className="baca-btn baca-btn-primary" disabled={saving}>
-						<span className="dashicons dashicons-saved" aria-hidden="true" />
+					<button type="submit" className="baca-btn baca-btn-primary" disabled={saving || !isDirty}>
 						{saving
 							? __('Saving…', 'botisst-ai-chat-assistant')
-							: __('Save All Settings', 'botisst-ai-chat-assistant')}
+							: __('Save', 'botisst-ai-chat-assistant')}
 					</button>
 
-					{activeSubTab === 'indexing' && selectedPostTypes.length > 0 && (
+					{activeSubTab === 'vector-db' && selectedPostTypes.length > 0 && (
 						<button
 							type="button"
 							className="baca-btn baca-btn-secondary"
@@ -682,6 +868,9 @@ export default function KnowledgeBaseTab({ settings, onSave, showNotice }) {
 						setPineconeApiKey('');
 						setPineconeHost('');
 						setPineconeIndexName('');
+						// This reset persists immediately (it's not a pending
+						// edit), so keep the dirty-check baseline in sync.
+						setBaseline((prev) => ({ ...prev, pineconeApiKey: '', pineconeHost: '', pineconeIndexName: '' }));
 
 						onSave({
 							rag: {

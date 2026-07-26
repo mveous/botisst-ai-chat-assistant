@@ -1,70 +1,73 @@
 === Botisst - AI Chat Assistant ===
-Contributors: lionecoders, deep7197
-Tags: ai, chatbot, openai, chatgpt, anthropic
+Contributors: lionecoders, deep7197, mveous
+Tags: ai, chatbot, agent, botisst, assistant
 Requires at least: 5.8
-Tested up to: 6.9
+Tested up to: 7.0
 Stable tag: 1.0.1
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-AI-powered chat plugin for WordPress. Connect multiple AI providers like OpenAI, Google Gemini, and Anthropic seamlessly to your site.
+A custom AI assistant for WordPress. Connect OpenAI or Gemini, train it with your knowledge base, and chat with visitors in real-time.
 
 == Description ==
 
-Botisst is a modern, extensible AI chatbot solution for WordPress. By integrating natively with top-tier AI providers—including OpenAI, Google Gemini, and Anthropic—you can provide your users with intelligent, multi-modal contextual support. 
+Meet Botisst, your new AI-powered website assistant. Whether you want to answer customer support questions, guide visitors to the right pages, or just give your users a fun, interactive way to learn about your site, Botisst makes it easy.
 
-Built with a lightning-fast React frontend and a robust settings dashboard, Botisst lets you fully customize the appearance, logic, and base knowledge text of your AI Virtual Assistant.
+Unlike other clunky chatbot plugins, Botisst is built with a snappy React interface. It connects directly and securely to top-tier AI models (OpenAI and Google Gemini), meaning you don't have to pay for expensive middleman subscriptions. You get complete control over how your chatbot behaves, how it looks, and what knowledge it uses to answer questions.
+
+Give your visitors a smarter experience without slowing down your site.
 
 = Key Features =
-*   **Multiple LLM Integrations**: Effortlessly fallback or swap between OpenAI, Google Gemini, and Anthropic.
-*   **Custom Prompt Instructions**: Instruct the chatbot on exactly how to behave.
-*   **Knowledge Base**: Train the assistant directly with text snippets or URL links.
-*   **Modern React Interface**: Beautiful dynamic tab dashboard and performant, non-blocking floating front-end widget.
-*   **Database Chat Logging**: Review recent chatbot transcripts directly from your wp-admin area.
+* **Multiple LLM Providers**: Connect directly and securely to OpenAI or Google Gemini. Easily configure fallbacks or switch models in seconds.
+* **Train Your Assistant (RAG)**: Feed the chatbot custom text snippets, documents, or website links. The built-in Retrieval-Augmented Generation (RAG) engine scans and indexes knowledge to provide accurate answers.
+* **Advanced Vector Databases**: Out-of-the-box support for a local SQLite vector store, or integrate with cloud services like Pinecone.
+* **Modern React Settings & Widget**: Snappy, beautiful React admin dashboard (with a live chat preview) and a performant, non-blocking floating front-end widget.
+* **Elementor Page Builder Support**: Easily embed and customize your AI Assistant using the custom Elementor widget.
+* **Flexible Shortcode Integration**: Use the `[botisst_ai]` shortcode to easily render the chat interface inline on any page or post.
+* **Chat Logs & Sessions**: View and review interactive visitor chat transcripts directly from the WordPress admin panel.
+* **Context & Memory Optimization**: Smart backend token optimization that automatically keeps context history concise, saving you API costs.
 
-### Generate API Keys
-Get your OpenAI API key here: [https://platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-Get your Gemini AI API key here: [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
-Get your Anthropic API key here: [https://platform.anthropic.com/api-keys](https://platform.anthropic.com/api-keys)
+### How to Get Your API Keys
+To get started, you'll need an API key from one of the supported providers:
+* **OpenAI (ChatGPT):** [Get your OpenAI API key here](https://platform.openai.com/api-keys)
+* **Google Gemini:** [Get your Gemini API key here](https://aistudio.google.com/app/apikey)
 
 == Installation ==
 
-1. Upload the plugin files to the `/wp-content/plugins/botisst-ai-chat-assistant` directory, or install the plugin through the WordPress plugins screen directly.
-2. Activate the plugin through the 'Plugins' screen in WordPress.
-3. Access the settings via the new **Botisst** menu inside your dashboard.
-4. Add your OpenAI, Google Gemini, or Anthropic API Keys in the **API Credentials** tab.
-5. Customize your Chatbot UI and turn on **Global Visibility** to deploy!
+Setting up Botisst takes less than 5 minutes:
+1. **Upload & Install**: Search for "Botisst" in your WordPress admin under *Plugins > Add New*, or upload the plugin folder directly to `/wp-content/plugins/`.
+2. **Activate**: Click **Activate** on your Plugins screen.
+3. **Open Settings**: Click on the new **Botisst** menu item in your WordPress sidebar.
+4. **Link Your AI**: Go to the **API Credentials** tab and paste your OpenAI or Google Gemini key.
+5. **Launch!**: Customize how the chatbot looks, turn on **Global Visibility**, and you're good to go!
 
 == Frequently Asked Questions ==
 
-= Does this plugin include free AI usage? =
-No, you must supply your own secure API keys from platforms like OpenAI, Anthropic, or Google. 
+= Do I need a paid subscription to use this? =
+No monthly fees! You only pay for what you use directly through your OpenAI or Google Gemini developer accounts. Both platforms offer generous free tiers or low pay-as-you-go pricing.
 
-= Can I use shortcodes instead of the floating launcher? =
-Yes! Just use `[botisst_ai]` anywhere in your post or page to render the chat context inline.
+= Can I put the chat inside a page instead of a floating bubble? =
+Absolutely. Just paste the `[botisst_ai]` shortcode anywhere on a page or post, and the chat interface will load inline right where you put it.
 
-### AI Disclaimer
-Botisst is powered by industry-leading providers including OpenAI, Google Gemini, and Anthropic. Please be aware that AI-generated content can occasionally contain inaccuracies, and we recommend verifying important information.
+= Where is my data sent? =
+Your chat messages are sent directly to the AI provider you configure (OpenAI or Google Gemini) to generate responses. We don't route your requests through any third-party servers, keeping your data private and secure.
 
-### Important Links & Information
-- **OpenAI Privacy Policy:**
-[https://openai.com/policies/row-privacy-policy/](https://openai.com/policies/row-privacy-policy/)
+### A Friendly Disclaimer
+Because our chatbot uses language models (like OpenAI and Gemini), it might occasionally write things that aren't 100% accurate. We recommend keeping an eye on your prompt instructions and double-checking important info.
 
-- **OpenAI Terms of Use:**
-[https://openai.com/policies/row-terms-of-use/](https://openai.com/policies/row-terms-of-use/)
+### Privacy & Terms
+If you'd like to learn more about how OpenAI and Google handle data, check out their official terms:
+* [OpenAI Privacy Policy](https://openai.com/policies/row-privacy-policy/)
+* [OpenAI Terms of Use](https://openai.com/policies/row-terms-of-use/)
+* [Google Gemini Privacy Policy](https://safety.google/intl/en_in/products/gemini/)
+* [Google Gemini API Terms](https://ai.google.dev/gemini-api/terms)
 
-- **Google Gemini Privacy Policy:**
-[https://safety.google/intl/en_in/products/gemini/](https://safety.google/intl/en_in/products/gemini/)
+== Screenshots ==
 
-- **Google Gemini API Terms:**
-[https://ai.google.dev/gemini-api/terms](https://ai.google.dev/gemini-api/terms)
-
-- **Anthropic Privacy Policy:**
-[https://www.anthropic.com/privacy](https://www.anthropic.com/privacy)
-
-- **Anthropic Terms of Use:**
-[https://www.anthropic.com/terms](https://www.anthropic.com/terms)
+1. Botisst Setup Wizard.
+2. Botisst Settings Dashboard.
+3. Botisst Chat Widget on front-end.
 
 == Changelog ==
 

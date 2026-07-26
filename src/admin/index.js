@@ -5,12 +5,12 @@ import SetupWizard from './components/SetupWizard';
 
 function StandaloneWizard() {
 	const [ open, setOpen ] = useState( false );
-	const [ settings, setSettings ] = useState( () => window.baca_data.settings );
+	const [ settings, setSettings ] = useState( () => window.baca_data?.settings );
 	const [ notice, setNotice ] = useState( null );
 
 	useEffect( () => {
 		const handleTrigger = ( e ) => {
-			if ( e.target.classList.contains( 'baca-run-wizard-trigger' ) ) {
+			if ( e.target.classList.contains( 'baca-run-wizard-trigger' ) || e.target.closest('.baca-run-wizard-trigger') ) {
 				e.preventDefault();
 				setOpen( true );
 			}
@@ -34,7 +34,9 @@ function StandaloneWizard() {
 				open={ open }
 				settings={ settings }
 				onSave={ ( updatedSettings ) => {
-					window.baca_data.settings = { ...window.baca_data.settings, ...updatedSettings };
+					if ( window.baca_data ) {
+						window.baca_data.settings = { ...window.baca_data.settings, ...updatedSettings };
+					}
 					setSettings( ( prev ) => ( { ...prev, ...updatedSettings } ) );
 				} }
 				onClose={ () => {

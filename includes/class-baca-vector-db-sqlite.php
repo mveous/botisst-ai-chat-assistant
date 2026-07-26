@@ -29,11 +29,12 @@ class BACA_Vector_DB_SQLite extends BACA_Vector_DB_Base {
 	public function store_embedding( $chunk_id, $embedding, $document_id = '' ) {
 		global $wpdb;
 
-		$embeddings_table = $wpdb->prefix . 'baca_embeddings';
-		$chunks_table     = $wpdb->prefix . 'baca_rag_chunks';
+		$embeddings_table = esc_sql( $wpdb->prefix . 'baca_embeddings' );
+		$chunks_table     = esc_sql( $wpdb->prefix . 'baca_rag_chunks' );
 
 		$embedding_json = wp_json_encode( $embedding );
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database write to custom table.
 		$result = $wpdb->replace(
 			$embeddings_table,
 			[
@@ -49,6 +50,7 @@ class BACA_Vector_DB_SQLite extends BACA_Vector_DB_Base {
 			return new WP_Error( 'sqlite_store_failed', 'Failed to save embedding in database.' );
 		}
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database write to custom table.
 		$wpdb->update(
 			$chunks_table,
 			[
@@ -72,13 +74,14 @@ class BACA_Vector_DB_SQLite extends BACA_Vector_DB_Base {
 	public function bulk_store_embeddings( $embeddings ) {
 		global $wpdb;
 
-		$embeddings_table = $wpdb->prefix . 'baca_embeddings';
-		$chunks_table     = $wpdb->prefix . 'baca_rag_chunks';
+		$embeddings_table = esc_sql( $wpdb->prefix . 'baca_embeddings' );
+		$chunks_table     = esc_sql( $wpdb->prefix . 'baca_rag_chunks' );
 
 		foreach ( $embeddings as $chunk_id => $embedding_data ) {
 			$embedding      = $embedding_data['vector'];
 			$embedding_json = wp_json_encode( $embedding );
 
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database write to custom table.
 			$result = $wpdb->replace(
 				$embeddings_table,
 				[
@@ -94,6 +97,7 @@ class BACA_Vector_DB_SQLite extends BACA_Vector_DB_Base {
 				return new WP_Error( 'sqlite_bulk_store_failed', 'Failed to bulk save embeddings in database.' );
 			}
 
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database write to custom table.
 			$wpdb->update(
 				$chunks_table,
 				[
@@ -123,19 +127,17 @@ class BACA_Vector_DB_SQLite extends BACA_Vector_DB_Base {
 			return [];
 		}
 
-		$embeddings_table = $wpdb->prefix . 'baca_embeddings';
-		$chunks_table     = $wpdb->prefix . 'baca_rag_chunks';
+		$embeddings_table = esc_sql( $wpdb->prefix . 'baca_embeddings' );
+		$chunks_table     = esc_sql( $wpdb->prefix . 'baca_rag_chunks' );
 
 		// Fetch completed chunks and their embeddings using a JOIN
-		// limit to 500 to keep performance reasonable for local PHP cosine calculations
-		$results_db = $wpdb->get_results(
-			"SELECT e.chunk_id, e.embedding 
-			 FROM {$embeddings_table} e
-			 JOIN {$chunks_table} c ON e.chunk_id = c.id
-			 WHERE c.embedding_status = 'completed'
-			 LIMIT 500",
-			ARRAY_A
-		);
+		// limit to 500 to keep performance reasonable for local PHP cosine calculations.
+		// Ordered by most recently indexed first so which 500 chunks get
+		// searched (on sites with more than 500) is deterministic instead
+		// of an arbitrary/undefined subset.
+		$query = "SELECT e.chunk_id, e.embedding FROM {$embeddings_table} e JOIN {$chunks_table} c ON e.chunk_id = c.id WHERE c.embedding_status = 'completed' ORDER BY c.created_at DESC, c.id DESC LIMIT 500"; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table names are dynamic but safe.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Direct database read from custom table, query is safe.
+		$results_db = $wpdb->get_results( $query, ARRAY_A );
 
 		if ( empty( $results_db ) ) {
 			return [];
@@ -212,15 +214,17 @@ class BACA_Vector_DB_SQLite extends BACA_Vector_DB_Base {
 	public function delete_embedding( $chunk_id ) {
 		global $wpdb;
 
-		$embeddings_table = $wpdb->prefix . 'baca_embeddings';
+		$embeddings_table = esc_sql( $wpdb->prefix . 'baca_embeddings' );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database write to custom table.
 		$wpdb->delete(
 			$embeddings_table,
 			[ 'chunk_id' => $chunk_id ],
 			[ '%d' ]
 		);
 
-		$chunks_table = $wpdb->prefix . 'baca_rag_chunks';
+		$chunks_table = esc_sql( $wpdb->prefix . 'baca_rag_chunks' );
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database write to custom table.
 		$wpdb->update(
 			$chunks_table,
 			[
@@ -244,11 +248,12 @@ class BACA_Vector_DB_SQLite extends BACA_Vector_DB_Base {
 	public function get_embedding( $chunk_id ) {
 		global $wpdb;
 
-		$embeddings_table = $wpdb->prefix . 'baca_embeddings';
+		$embeddings_table = esc_sql( $wpdb->prefix . 'baca_embeddings' );
 		
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database read from custom table.
 		$embedding_json = $wpdb->get_var(
 			$wpdb->prepare(
-				"SELECT embedding FROM {$embeddings_table} WHERE chunk_id = %d",
+				"SELECT embedding FROM {$embeddings_table} WHERE chunk_id = %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
 				$chunk_id
 			)
 		);
@@ -273,15 +278,15 @@ class BACA_Vector_DB_SQLite extends BACA_Vector_DB_Base {
 			return true;
 		}
 
-		$embeddings_table = $wpdb->prefix . 'baca_embeddings';
-		$chunks_table     = $wpdb->prefix . 'baca_rag_chunks';
+		$embeddings_table = esc_sql( $wpdb->prefix . 'baca_embeddings' );
+		$chunks_table     = esc_sql( $wpdb->prefix . 'baca_rag_chunks' );
 
 		$placeholders = implode( ',', array_fill( 0, count( $chunk_ids ), '%d' ) );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- Direct database write to custom table.
 		$wpdb->query( $wpdb->prepare( "DELETE FROM {$embeddings_table} WHERE chunk_id IN ($placeholders)", ...$chunk_ids ) );
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- Direct database write to custom table.
 		$wpdb->query( $wpdb->prepare( "UPDATE {$chunks_table} SET embedding_status = 'pending', vector_id = NULL WHERE id IN ($placeholders)", ...$chunk_ids ) );
 
 		return true;
@@ -294,9 +299,10 @@ class BACA_Vector_DB_SQLite extends BACA_Vector_DB_Base {
 	 */
 	public function test_connection() {
 		global $wpdb;
-		$table_name = $wpdb->prefix . 'baca_embeddings';
+		$table_name = esc_sql( $wpdb->prefix . 'baca_embeddings' );
 
 		// Safe check to verify table existence across any SQL driver engine
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Direct query on custom table, table name is dynamic but safe.
 		$wpdb->query( "SELECT 1 FROM {$table_name} LIMIT 1" );
 
 		if ( ! empty( $wpdb->last_error ) ) {
@@ -316,7 +322,9 @@ class BACA_Vector_DB_SQLite extends BACA_Vector_DB_Base {
 
 		$chunks_table = esc_sql( $wpdb->prefix . 'baca_rag_chunks' );
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Direct query on custom table, table name is dynamic but safe.
 		$total    = $wpdb->get_var( "SELECT COUNT(*) FROM {$chunks_table}" );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Direct query on custom table, table name is dynamic but safe.
 		$embedded = $wpdb->get_var( "SELECT COUNT(*) FROM {$chunks_table} WHERE embedding_status = 'completed'" );
 
 		return [

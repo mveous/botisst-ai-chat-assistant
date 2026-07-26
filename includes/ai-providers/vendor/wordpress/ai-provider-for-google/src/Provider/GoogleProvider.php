@@ -17,6 +17,7 @@ use WordPress\AiClient\Providers\Models\Contracts\ModelInterface;
 use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
 use WordPress\GoogleAiProvider\Metadata\GoogleModelMetadataDirectory;
 use WordPress\GoogleAiProvider\Models\GoogleImageGenerationModel;
+use WordPress\GoogleAiProvider\Models\GoogleTextAndImageGenerationModel;
 use WordPress\GoogleAiProvider\Models\GoogleTextGenerationModel;
 
 /**
@@ -45,16 +46,13 @@ class GoogleProvider extends AbstractApiProvider
         ModelMetadata $modelMetadata,
         ProviderMetadata $providerMetadata
     ): ModelInterface {
-        /*
-         * Temporary workaround: We don't have a clean way of returning multimodal output model classes yet,
-         * currently the implementations are separated by capability. There are a few Google models that support both
-         * text and image generation, so if we detect that the model supports image generation, we'll return the image
-         * generation model class in that case, because it's far more likely that users want to use those models for
-         * image generation. We will have to revisit that in the near future for a proper solution.
-         */
+        // For multimodal text and image models, return the composition wrapper that implements both capabilities.
         $capabilitiesStringList = $modelMetadata->toArray()[ModelMetadata::KEY_SUPPORTED_CAPABILITIES];
-        if (in_array('image_generation', $capabilitiesStringList, true)) {
-            return new GoogleImageGenerationModel($modelMetadata, $providerMetadata);
+        if (
+            in_array('text_generation', $capabilitiesStringList, true) &&
+            in_array('image_generation', $capabilitiesStringList, true)
+        ) {
+            return new GoogleTextAndImageGenerationModel($modelMetadata, $providerMetadata);
         }
 
         $capabilities = $modelMetadata->getSupportedCapabilities();
@@ -95,6 +93,10 @@ class GoogleProvider extends AbstractApiProvider
             } else {
                 $providerMetadataArgs[] = 'Text and image generation with Gemini and Imagen.';
             }
+        }
+        // Provider logoPath support was added in 1.3.0.
+        if (version_compare(AiClient::VERSION, '1.3.0', '>=')) {
+            $providerMetadataArgs[] = dirname(__DIR__, 2) . '/assets/images/google.svg';
         }
         return new ProviderMetadata(...$providerMetadataArgs);
     }

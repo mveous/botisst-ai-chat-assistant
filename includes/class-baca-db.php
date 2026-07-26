@@ -58,12 +58,10 @@ class BACA_DB {
 			url varchar(2083),
 			hash varchar(32),
 			indexed_at datetime,
-			embedding_status varchar(20) DEFAULT 'pending',
 			PRIMARY KEY (id),
 			UNIQUE KEY document_id (document_id),
 			KEY post_id (post_id),
-			KEY post_type (post_type),
-			KEY embedding_status (embedding_status)
+			KEY post_type (post_type)
 		) $charset_collate;";
 
 		dbDelta( $sql_rag_documents );
@@ -114,7 +112,8 @@ class BACA_DB {
 		dbDelta( $sql_embeddings );
 
 		// Add vector_id column if it doesn't exist (migration)
-		$chunks_table = $wpdb->prefix . 'baca_rag_chunks';
+		$chunks_table = esc_sql( $wpdb->prefix . 'baca_rag_chunks' );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Required for custom schema column check, caching is not applicable.
 		$column_exists = $wpdb->get_results( $wpdb->prepare(
 			"SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = %s AND COLUMN_NAME = %s AND TABLE_SCHEMA = DATABASE()",
 			$chunks_table,
@@ -122,7 +121,9 @@ class BACA_DB {
 		) );
 
 		if ( empty( $column_exists ) ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Safe schema alteration, no user input, caching not applicable.
 			$wpdb->query( "ALTER TABLE `$chunks_table` ADD COLUMN `vector_id` varchar(255) AFTER `tokens_count`" );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Safe schema alteration, no user input, caching not applicable.
 			$wpdb->query( "ALTER TABLE `$chunks_table` ADD KEY `vector_id` (`vector_id`)" );
 		}
 
@@ -159,36 +160,19 @@ class BACA_DB {
 		$table = esc_sql( $wpdb->prefix . 'baca_sessions' );
 		$time  = current_time( 'mysql' );
 
-		// If email is provided, retrieve any existing session matching this email
-		if ( ! empty( $email ) ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Required for custom table query.
-			$existing_session = $wpdb->get_row(
-				$wpdb->prepare(
-					"SELECT session_id, content FROM {$table} WHERE email = %s LIMIT 1",
-					$email
-				)
-			);
-			if ( $existing_session ) {
-				$session_id = $existing_session->session_id;
-				$existing_messages = $existing_session->content;
-			}
-		}
-
 		$cache_key   = 'baca_session_' . md5( $session_id );
 		$cache_group = 'botisst_ai';
 
-		if ( ! isset( $existing_messages ) ) {
-			$existing_messages = wp_cache_get( $cache_key, $cache_group );
+		$existing_messages = wp_cache_get( $cache_key, $cache_group );
 
-			if ( false === $existing_messages ) {
-				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Required for custom table query.
-				$existing_messages = $wpdb->get_var(
-					$wpdb->prepare(
-						"SELECT content FROM {$table} WHERE session_id = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
-						$session_id
-					)
-				);
-			}
+		if ( false === $existing_messages ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Required for custom table query.
+			$existing_messages = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT content FROM {$table} WHERE session_id = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+					$session_id
+				)
+			);
 		}
 
 		$new_messages = [
@@ -274,25 +258,22 @@ class BACA_DB {
 	public static function baca_get_all_sessions( $limit = '100', $order = 'desc' ) {
 		global $wpdb;
 
-		$table = $wpdb->prefix . 'baca_sessions';
+		$table = esc_sql( $wpdb->prefix . 'baca_sessions' );
 
 		// Normalize and validate order.
-		$order_clean = strtoupper( $order ) === 'ASC' ? 'ASC' : 'DESC';
+		$order_clean = esc_sql( strtoupper( $order ) === 'ASC' ? 'ASC' : 'DESC' );
 
-		// Normalize and build limit SQL segment.
-		$limit_sql = '';
+		// Normalize and build limit SQL segment. A limit of exactly 0 (or a
+		// negative value) should mean "zero rows", not "no LIMIT clause at
+		// all" — so the LIMIT is always applied whenever $limit isn't 'all'.
+		$limit_sql = esc_sql( '' );
 		if ( $limit !== 'all' ) {
-			$limit_val = intval( $limit );
-			if ( $limit_val > 0 ) {
-				$limit_sql = " LIMIT {$limit_val}";
-			}
+			$limit_val = max( 0, intval( $limit ) );
+			$limit_sql = esc_sql( " LIMIT {$limit_val}" );
 		}
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Custom table read.
-		$sessions = $wpdb->get_results(
-			"SELECT * FROM {$table} ORDER BY created_at {$order_clean}{$limit_sql}",
-			ARRAY_A
-		);
+		$sessions = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY created_at {$order_clean}{$limit_sql}", ARRAY_A );
 
 		return is_array( $sessions ) ? $sessions : [];
 	}

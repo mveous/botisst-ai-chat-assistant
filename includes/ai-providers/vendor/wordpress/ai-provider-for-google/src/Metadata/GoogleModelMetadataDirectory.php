@@ -103,6 +103,12 @@ class GoogleModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadata
             [ModalityEnum::text(), ModalityEnum::image(), ModalityEnum::audio(), ModalityEnum::document()],
         ];
 
+        $geminiImageAspectRatios = ['1:1', '16:9', '4:3', '3:2', '5:4', '9:16', '3:4', '2:3', '4:5', '21:9'];
+        $gemini31ImageAspectRatios = array_merge(
+            $geminiImageAspectRatios,
+            ['4:1', '8:1', '1:4', '1:8']
+        );
+
         $geminiCapabilities = [
             CapabilityEnum::textGeneration(),
             CapabilityEnum::chatHistory(),
@@ -139,6 +145,12 @@ class GoogleModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadata
         ]);
         $geminiMultimodalImageOutputOptions = array_merge($geminiBaseOptions, [
             new SupportedOption(OptionEnum::outputFileType(), [FileTypeEnum::inline()]),
+            new SupportedOption(OptionEnum::outputMediaOrientation(), [
+                MediaOrientationEnum::square(),
+                MediaOrientationEnum::landscape(),
+                MediaOrientationEnum::portrait(),
+            ]),
+            new SupportedOption(OptionEnum::outputMediaAspectRatio(), $geminiImageAspectRatios),
             new SupportedOption(
                 OptionEnum::inputModalities(),
                 $allModalityCombinationsWithText
@@ -166,7 +178,7 @@ class GoogleModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadata
                 MediaOrientationEnum::landscape(),
                 MediaOrientationEnum::portrait(),
             ]),
-            new SupportedOption(OptionEnum::outputMediaAspectRatio(), ['1:1', '16:9', '4:3', '9:16', '3:4']),
+            new SupportedOption(OptionEnum::outputMediaAspectRatio(), $geminiImageAspectRatios),
             new SupportedOption(OptionEnum::customOptions()),
         ];
 
@@ -180,7 +192,8 @@ class GoogleModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadata
                     $geminiOptions,
                     $geminiMultimodalImageOutputOptions,
                     $imagenCapabilities,
-                    $imagenOptions
+                    $imagenOptions,
+                    $gemini31ImageAspectRatios
                 ): ModelMetadata {
                     $modelId = $modelData['baseModelId'] ?? $modelData['name'];
                     if (str_starts_with($modelId, 'models/')) {
@@ -201,6 +214,20 @@ class GoogleModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadata
                         ) {
                             $modelCaps = $geminiMultimodalImageOutputCapabilities;
                             $modelOptions = $geminiMultimodalImageOutputOptions;
+                            if (str_starts_with($modelId, 'gemini-3.1')) {
+                                $modelOptions = array_map(
+                                    static function (SupportedOption $option) use ($gemini31ImageAspectRatios) {
+                                        if ($option->getName()->isOutputMediaAspectRatio()) {
+                                            return new SupportedOption(
+                                                $option->getName(),
+                                                $gemini31ImageAspectRatios
+                                            );
+                                        }
+                                        return $option;
+                                    },
+                                    $modelOptions
+                                );
+                            }
                         } else {
                             $modelOptions = $geminiOptions;
                         }

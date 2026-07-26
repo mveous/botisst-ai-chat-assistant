@@ -108,8 +108,6 @@ class BACA_Indexer
 	 */
 	public function index_all_documents()
 	{
-		global $wpdb;
-
 		$settings = $this->get_settings();
 		$sources = !empty($settings['post_types']) ? $settings['post_types'] : ['post', 'page'];
 
@@ -128,6 +126,7 @@ class BACA_Indexer
 	 */
 	public function index_documents_by_type($post_types = [])
 	{
+		global $wpdb;
 
 		if (empty($post_types)) {
 			return [
@@ -150,7 +149,43 @@ class BACA_Indexer
 			current_time('mysql')
 		);
 
+		$registered_types = get_post_types();
+		$valid_post_types = array_filter(
+			array_intersect($post_types, $registered_types),
+			'post_type_exists'
+		);
+		$docs_table = esc_sql($wpdb->prefix . 'baca_rag_documents');
+
+		/*
+		 * Clean up post types that are not selected or no longer registered
+		 */
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Direct query with safe dynamic table name.
+		$db_post_types = $wpdb->get_col("SELECT DISTINCT post_type FROM {$docs_table}");
+
+		if (!empty($db_post_types)) {
+			foreach ($db_post_types as $db_post_type) {
+				if (!in_array($db_post_type, $valid_post_types, true)) {
+					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database query on custom table.
+					$doc_ids = $wpdb->get_col(
+						$wpdb->prepare(
+							"SELECT document_id FROM {$docs_table} WHERE post_type = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
+							$db_post_type
+						)
+					);
+					if (!empty($doc_ids)) {
+						foreach ($doc_ids as $doc_id) {
+							$this->remove_document($doc_id);
+						}
+					}
+				}
+			}
+		}
+
 		foreach ($post_types as $post_type) {
+
+			if (!in_array($post_type, $registered_types, true) || !post_type_exists($post_type)) {
+				continue;
+			}
 
 			try {
 
@@ -166,6 +201,32 @@ class BACA_Indexer
 						'suppress_filters' => false,
 					]
 				);
+
+				/*
+				 * Clean up stale or deleted/unpublished posts of this post type
+				 */
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database read.
+				$db_post_ids = $wpdb->get_col(
+					$wpdb->prepare(
+						"SELECT post_id FROM {$docs_table} WHERE post_type = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
+						$post_type
+					)
+				);
+				$db_post_ids = array_map('intval', $db_post_ids);
+
+				$active_post_ids = [];
+				if (!empty($posts)) {
+					foreach ($posts as $post) {
+						if (!empty($post->ID)) {
+							$active_post_ids[] = intval($post->ID);
+						}
+					}
+				}
+
+				$posts_to_remove = array_diff($db_post_ids, $active_post_ids);
+				foreach ($posts_to_remove as $remove_post_id) {
+					$this->remove_document('post_' . $remove_post_id);
+				}
 
 				if (empty($posts)) {
 					continue;
@@ -207,11 +268,6 @@ class BACA_Indexer
 							$post->ID .
 							': ' .
 							$e->getMessage();
-
-						error_log(
-							'BACA Post Index Error: ' .
-							$e->getMessage()
-						);
 					}
 				}
 
@@ -225,10 +281,6 @@ class BACA_Indexer
 					': ' .
 					$e->getMessage();
 
-				error_log(
-					'BACA Type Index Error: ' .
-					$e->getMessage()
-				);
 			}
 		}
 
@@ -297,6 +349,9 @@ class BACA_Indexer
 		if ('publish' !== $post->post_status) {
 			return false;
 		}
+
+		global $wpdb;
+		$chunks_table = esc_sql($wpdb->prefix . 'baca_rag_chunks');
 
 		try {
 
@@ -367,7 +422,7 @@ class BACA_Indexer
 			$vector_db =
 				$this->vector_db;
 
-			if (!$vector_db) {
+			if (!$vector_db || is_wp_error($vector_db)) {
 
 				throw new Exception(
 					'Vector DB missing.'
@@ -434,19 +489,27 @@ class BACA_Indexer
 						$result->get_error_message()
 					);
 				}
+
+				/*
+				 * Mark completed so this chunk isn't re-embedded by the
+				 * pending-embeddings batch.
+				 */
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct update to custom table status.
+				$wpdb->update(
+					$chunks_table,
+					[
+						'embedding_status' => 'completed',
+						'vector_id' => (string) $chunk_id,
+					],
+					[
+						'id' => $chunk_id,
+					]
+				);
 			}
 
 			return true;
 
 		} catch (Exception $e) {
-
-			error_log(
-				'Post indexing error for ID ' .
-				$post->ID .
-				': ' .
-				$e->getMessage()
-			);
-
 			throw $e;
 		}
 	}
@@ -468,7 +531,7 @@ class BACA_Indexer
 		$full_content = preg_replace('/\s+/', ' ', $full_content); // Normalize whitespace
 
 		$chunks = [];
-		$length = strlen($full_content);
+		$length = mb_strlen($full_content);
 
 		if ($length <= $this->chunk_size) {
 			return [
@@ -483,9 +546,13 @@ class BACA_Indexer
 		$start = 0;
 		$index = 0;
 
+		// Guard against a misconfigured chunk_overlap >= chunk_size, which
+		// would make $start never advance and loop forever.
+		$effective_overlap = min($this->chunk_overlap, max(0, $this->chunk_size - 1));
+
 		while ($start < $length) {
 			$end = min($start + $this->chunk_size, $length);
-			$chunk = substr($full_content, $start, $this->chunk_size);
+			$chunk = mb_substr($full_content, $start, $this->chunk_size);
 			$chunks[] = [
 				'content' => trim($chunk),
 				'chunk_index' => $index,
@@ -494,7 +561,7 @@ class BACA_Indexer
 			];
 
 			// Move start position with overlap
-			$start += ($this->chunk_size - $this->chunk_overlap);
+			$start += ($this->chunk_size - $effective_overlap);
 			$index++;
 		}
 
@@ -529,10 +596,10 @@ class BACA_Indexer
 		try {
 			$table = esc_sql($wpdb->prefix . 'baca_rag_documents');
 
-			// Check if exists
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database query on custom table.
 			$existing = $wpdb->get_row(
 				$wpdb->prepare(
-					"SELECT id FROM {$table} WHERE document_id = %s",
+					"SELECT id FROM {$table} WHERE document_id = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
 					$data['document_id']
 				)
 			);
@@ -549,36 +616,35 @@ class BACA_Indexer
 				'url' => $data['url'],
 				'hash' => $data['hash'],
 				'indexed_at' => $data['indexed_at'],
-				'embedding_status' => 'pending',
 			];
 
 			if ($existing) {
 				// Update
-				$result = $wpdb->update(
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct update to custom table.
+				$wpdb->update(
 					$table,
 					$insert_data,
 					['document_id' => $data['document_id']],
-					['%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s']
+					['%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s']
 				);
-				if (false === $result) {
-					error_log('Failed to update document: ' . $data['document_id'] . '. Error: ' . $wpdb->last_error);
-				}
 				return $existing->id;
 			} else {
 				// Insert
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Direct insert to custom table.
 				$result = $wpdb->insert(
 					$table,
 					$insert_data,
-					['%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s']
+					['%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s']
 				);
 				if (false === $result) {
-					error_log('Failed to insert document: ' . $data['document_id'] . '. Error: ' . $wpdb->last_error);
 					return false;
 				}
 				return $wpdb->insert_id;
 			}
 		} catch (Exception $e) {
-			error_log('Document storage error: ' . $e->getMessage());
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('Botisst AI Indexer Store Document Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Allowed under WP_DEBUG constraint.
+			}
 			return false;
 		}
 	}
@@ -607,12 +673,10 @@ class BACA_Indexer
 			/*
 			 * Check existing chunk
 			 */
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database query on custom table.
 			$existing = $wpdb->get_var(
 				$wpdb->prepare(
-					"SELECT id
-				FROM {$table}
-				WHERE document_id = %s
-				AND chunk_index = %d",
+					"SELECT id FROM {$table} WHERE document_id = %s AND chunk_index = %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
 					$document_id,
 					$index
 				)
@@ -636,6 +700,7 @@ class BACA_Indexer
 			 */
 			if ($existing) {
 
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct update to custom table.
 				$result = $wpdb->update(
 					$table,
 					$insert_data,
@@ -656,12 +721,6 @@ class BACA_Indexer
 				);
 
 				if (false === $result) {
-
-					error_log(
-						'Failed updating chunk: ' .
-						$wpdb->last_error
-					);
-
 					return false;
 				}
 
@@ -671,6 +730,7 @@ class BACA_Indexer
 			/*
 			 * Insert new chunk
 			 */
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Direct insert to custom table.
 			$result = $wpdb->insert(
 				$table,
 				$insert_data,
@@ -685,24 +745,15 @@ class BACA_Indexer
 			);
 
 			if (false === $result) {
-
-				error_log(
-					'Failed inserting chunk: ' .
-					$wpdb->last_error
-				);
-
 				return false;
 			}
 
 			return (int) $wpdb->insert_id;
 
 		} catch (Exception $e) {
-
-			error_log(
-				'Chunk storage error: ' .
-				$e->getMessage()
-			);
-
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('Botisst AI Indexer Store Chunk Error: ' . $e->getMessage()); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Allowed under WP_DEBUG constraint.
+			}
 			return false;
 		}
 	}
@@ -719,9 +770,10 @@ class BACA_Indexer
 
 		$table = esc_sql($wpdb->prefix . 'baca_rag_documents');
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database query on custom table.
 		$result = $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT * FROM {$table} WHERE document_id = %s",
+				"SELECT * FROM {$table} WHERE document_id = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
 				$document_id
 			),
 			ARRAY_A
@@ -745,7 +797,21 @@ class BACA_Indexer
 		$docs_table = esc_sql($wpdb->prefix . 'baca_rag_documents');
 		$chunks_table = esc_sql($wpdb->prefix . 'baca_rag_chunks');
 
+		// Get all chunk IDs first to delete from vector DB
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct read query from custom table.
+		$chunk_ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT id FROM {$chunks_table} WHERE document_id = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
+				$document_id
+			)
+		);
+
+		if (!empty($chunk_ids) && $this->vector_db && !is_wp_error($this->vector_db)) {
+			$this->vector_db->bulk_delete(array_map('intval', $chunk_ids));
+		}
+
 		// Remove chunks
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct deletion from custom table.
 		$wpdb->delete(
 			$chunks_table,
 			['document_id' => $document_id],
@@ -753,6 +819,7 @@ class BACA_Indexer
 		);
 
 		// Remove document
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct deletion from custom table.
 		$wpdb->delete(
 			$docs_table,
 			['document_id' => $document_id],
@@ -765,9 +832,14 @@ class BACA_Indexer
 	/**
 	 * Generate Embeddings for Pending Chunks
 	 *
-	 * @return array Status with count of processed chunks
+	 * Processes at most $batch_size chunks per call so a full backlog is
+	 * drained over several calls (chained via wp_schedule_single_event)
+	 * instead of one long-running request.
+	 *
+	 * @param int $batch_size Maximum chunks to embed this call.
+	 * @return array Status with count of processed chunks and how many remain.
 	 */
-	public function generate_pending_embeddings()
+	public function generate_pending_embeddings($batch_size = 50)
 	{
 
 		global $wpdb;
@@ -784,19 +856,23 @@ class BACA_Indexer
 
 		$settings = $this->get_settings();
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database query on custom table.
 		$pending_chunks = $wpdb->get_results(
-			"SELECT *
-		FROM {$chunks_table}
-		WHERE embedding_status = 'pending'
-		LIMIT 50",
+			$wpdb->prepare(
+				"SELECT * FROM {$chunks_table} WHERE embedding_status = 'pending' LIMIT %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
+				max(1, (int) $batch_size)
+			),
 			ARRAY_A
 		);
 
 		if (empty($pending_chunks)) {
 
+			$this->update_metadata('index_status', 'completed');
+
 			return [
 				'processed' => 0,
 				'failed' => 0,
+				'remaining' => 0,
 				'message' => 'No pending chunks found',
 			];
 		}
@@ -818,7 +894,7 @@ class BACA_Indexer
 				$config
 			);
 
-		if (!$vector_db) {
+		if (!$vector_db || is_wp_error($vector_db)) {
 
 			return [
 				'processed' => 0,
@@ -854,6 +930,7 @@ class BACA_Indexer
 					!is_array($embedding)
 				) {
 
+					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct update to custom table status.
 					$wpdb->update(
 						$chunks_table,
 						[
@@ -880,12 +957,7 @@ class BACA_Indexer
 					);
 
 				if (is_wp_error($result)) {
-
-					error_log(
-						'Vector Storage Error: ' .
-						$result->get_error_message()
-					);
-
+					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct update to custom table status.
 					$wpdb->update(
 						$chunks_table,
 						[
@@ -904,6 +976,7 @@ class BACA_Indexer
 				/*
 				 * Mark completed
 				 */
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct update to custom table status.
 				$wpdb->update(
 					$chunks_table,
 					[
@@ -918,12 +991,7 @@ class BACA_Indexer
 				$processed++;
 
 			} catch (Exception $e) {
-
-				error_log(
-					'Embedding Error: ' .
-					$e->getMessage()
-				);
-
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct update to custom table status.
 				$wpdb->update(
 					$chunks_table,
 					[
@@ -938,9 +1006,29 @@ class BACA_Indexer
 			}
 		}
 
+		// Lock only the counter read-modify-write, not the embedding calls
+		// above — those can safely run concurrently across ticks since each
+		// chunk row is updated independently by its own ID.
+		if ($this->acquire_index_lock()) {
+			try {
+				$this->update_metadata('embed_processed', (int) $this->get_metadata('embed_processed', 0) + $processed);
+				$this->update_metadata('embed_failed', (int) $this->get_metadata('embed_failed', 0) + $failed);
+			} finally {
+				$this->release_index_lock();
+			}
+		}
+
+		$remaining = $this->count_pending_embeddings();
+
+		if (0 === $remaining) {
+			$this->update_metadata('index_status', 'completed');
+			$this->update_metadata('last_index_time', current_time('mysql'));
+		}
+
 		return [
 			'processed' => $processed,
 			'failed' => $failed,
+			'remaining' => $remaining,
 			'message' => sprintf(
 				'Processed %d embeddings, failed %d',
 				$processed,
@@ -962,13 +1050,375 @@ class BACA_Indexer
 
 		$table = esc_sql($wpdb->prefix . 'baca_rag_metadata');
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database query on custom table.
 		$wpdb->query(
 			$wpdb->prepare(
-				"INSERT INTO {$table} (meta_key, meta_value) VALUES (%s, %s)
-				ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value), updated_at = CURRENT_TIMESTAMP",
+				"INSERT INTO {$table} (meta_key, meta_value) VALUES (%s, %s) ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value), updated_at = CURRENT_TIMESTAMP", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
 				$key,
 				$value
 			)
 		);
+	}
+
+	/**
+	 * Get Metadata
+	 *
+	 * @param string $key     Metadata key.
+	 * @param mixed  $default Default value if the key has no stored value.
+	 * @return mixed
+	 */
+	public function get_metadata($key, $default = null)
+	{
+		global $wpdb;
+
+		$table = esc_sql($wpdb->prefix . 'baca_rag_metadata');
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database query on custom table.
+		$value = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT meta_value FROM {$table} WHERE meta_key = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
+				$key
+			)
+		);
+
+		return null === $value ? $default : $value;
+	}
+
+	/**
+	 * Count Pending Embeddings
+	 *
+	 * @return int
+	 */
+	private function count_pending_embeddings()
+	{
+		global $wpdb;
+
+		$chunks_table = esc_sql($wpdb->prefix . 'baca_rag_chunks');
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct count on custom table.
+		return (int) $wpdb->get_var(
+			"SELECT COUNT(*) FROM {$chunks_table} WHERE embedding_status = 'pending'" // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
+		);
+	}
+
+	/**
+	 * Queue Index Job
+	 *
+	 * Cleans up stale documents and queues the post IDs that need
+	 * (re)indexing. Does not touch the embedding API itself — actual
+	 * indexing happens in small batches via process_index_batch(), so a
+	 * full-site index never runs inside a single request.
+	 *
+	 * @param array $post_types Post types to index.
+	 * @return array Queue summary, e.g. ['total' => 42].
+	 */
+	public function queue_index_job($post_types = [])
+	{
+		global $wpdb;
+
+		if (empty($post_types)) {
+			return ['total' => 0];
+		}
+
+		$registered_types = get_post_types();
+		$valid_post_types = array_intersect($post_types, $registered_types);
+		$docs_table = esc_sql($wpdb->prefix . 'baca_rag_documents');
+
+		/*
+		 * Clean up post types that are not selected or no longer registered
+		 */
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Direct query with safe dynamic table name.
+		$db_post_types = $wpdb->get_col("SELECT DISTINCT post_type FROM {$docs_table}");
+
+		if (!empty($db_post_types)) {
+			foreach ($db_post_types as $db_post_type) {
+				if (!in_array($db_post_type, $valid_post_types, true)) {
+					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database query on custom table.
+					$doc_ids = $wpdb->get_col(
+						$wpdb->prepare(
+							"SELECT document_id FROM {$docs_table} WHERE post_type = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
+							$db_post_type
+						)
+					);
+					foreach ($doc_ids as $doc_id) {
+						$this->remove_document($doc_id);
+					}
+				}
+			}
+		}
+
+		$post_ids = [];
+
+		foreach ($valid_post_types as $post_type) {
+
+			$active_ids = get_posts(
+				[
+					'post_type' => sanitize_text_field($post_type),
+					'post_status' => 'publish',
+					'posts_per_page' => -1,
+					'orderby' => 'ID',
+					'order' => 'ASC',
+					'fields' => 'ids',
+					'suppress_filters' => false,
+				]
+			);
+
+			/*
+			 * Clean up stale or deleted/unpublished posts of this post type
+			 */
+			// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct database read.
+			$db_post_ids = array_map(
+				'intval',
+				$wpdb->get_col(
+					$wpdb->prepare(
+						"SELECT post_id FROM {$docs_table} WHERE post_type = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is dynamic but safe.
+						$post_type
+					)
+				)
+			);
+			// phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+
+			foreach (array_diff($db_post_ids, $active_ids) as $stale_id) {
+				$this->remove_document('post_' . $stale_id);
+			}
+
+			$post_ids = array_merge($post_ids, $active_ids);
+		}
+
+		$post_ids = array_values(array_unique(array_map('intval', $post_ids)));
+
+		/*
+		 * Only queue posts that are actually new or whose content changed
+		 * since the last index (same hash comparison index_post() uses).
+		 * Already-indexed, unchanged posts are skipped entirely instead of
+		 * being counted toward the progress total, so re-indexing after
+		 * adding one more post type reports only the genuinely new items.
+		 */
+		$queue_ids = $this->filter_new_or_changed($post_ids);
+
+		$this->update_metadata('index_queue', wp_json_encode($queue_ids));
+		$this->update_metadata('index_status', empty($queue_ids) ? 'embedding' : 'indexing');
+		$this->update_metadata('index_total', count($queue_ids));
+		$this->update_metadata('index_processed', 0);
+		$this->update_metadata('index_indexed', 0);
+		$this->update_metadata('index_failed', 0);
+		$this->update_metadata('last_index_start', current_time('mysql'));
+
+		if (empty($queue_ids)) {
+			$this->update_metadata('embed_total', $this->count_pending_embeddings());
+			$this->update_metadata('embed_processed', 0);
+			$this->update_metadata('embed_failed', 0);
+		}
+
+		return ['total' => count($queue_ids)];
+	}
+
+	/**
+	 * Filter Post IDs Down to New or Changed
+	 *
+	 * Compares each post's current title+content hash against the hash
+	 * already stored for it (if any) and keeps only posts that are new or
+	 * have changed, so unchanged posts are neither re-embedded nor counted
+	 * in the indexing progress total.
+	 *
+	 * @param array $post_ids Candidate post IDs (already filtered to active/published).
+	 * @return array Post IDs that are new or whose content changed.
+	 */
+	private function filter_new_or_changed(array $post_ids)
+	{
+		global $wpdb;
+
+		if (empty($post_ids)) {
+			return [];
+		}
+
+		$id_placeholders = implode(',', array_fill(0, count($post_ids), '%d'));
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct read to compute content hashes for diffing; wp_posts is core.
+		$posts = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT ID, post_title, post_content FROM {$wpdb->posts} WHERE ID IN ({$id_placeholders})", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- Placeholders are prepared; table is $wpdb->posts.
+				$post_ids
+			),
+			ARRAY_A
+		);
+
+		if (empty($posts)) {
+			return [];
+		}
+
+		$current_hashes = [];
+		foreach ($posts as $post_row) {
+			$current_hashes['post_' . $post_row['ID']] = md5($post_row['post_title'] . $post_row['post_content']);
+		}
+
+		$document_ids = array_keys($current_hashes);
+		$doc_placeholders = implode(',', array_fill(0, count($document_ids), '%s'));
+		$docs_table = esc_sql($wpdb->prefix . 'baca_rag_documents');
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct read on custom table.
+		$existing_rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT document_id, hash FROM {$docs_table} WHERE document_id IN ({$doc_placeholders})", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- Table name is dynamic but safe; placeholders are prepared.
+				$document_ids
+			),
+			ARRAY_A
+		);
+
+		$existing_hashes = [];
+		foreach ($existing_rows as $row) {
+			$existing_hashes[$row['document_id']] = $row['hash'];
+		}
+
+		$new_or_changed = [];
+		foreach ($posts as $post_row) {
+			$document_id = 'post_' . $post_row['ID'];
+			if (
+				!isset($existing_hashes[$document_id]) ||
+				$existing_hashes[$document_id] !== $current_hashes[$document_id]
+			) {
+				$new_or_changed[] = (int) $post_row['ID'];
+			}
+		}
+
+		return $new_or_changed;
+	}
+
+	/**
+	 * Acquire the Indexing Lock
+	 *
+	 * Guards the index_queue read-modify-write cycle in process_index_batch()
+	 * and the progress counters in generate_pending_embeddings() against two
+	 * overlapping WP-Cron ticks (WordPress's pseudo-cron can be triggered by
+	 * two concurrent page loads) clobbering each other's write. Uses the
+	 * same transient-as-mutex pattern WordPress core itself uses in
+	 * wp-cron.php to prevent double-spawned cron runs.
+	 *
+	 * @return bool True if the lock was acquired.
+	 */
+	private function acquire_index_lock()
+	{
+		if (false !== get_transient('baca_indexing_lock')) {
+			return false;
+		}
+
+		set_transient('baca_indexing_lock', time(), 30);
+
+		return true;
+	}
+
+	/**
+	 * Release the Indexing Lock
+	 *
+	 * @return void
+	 */
+	private function release_index_lock()
+	{
+		delete_transient('baca_indexing_lock');
+	}
+
+	/**
+	 * Process Index Batch
+	 *
+	 * Indexes (and embeds, via index_post()) a small batch of queued
+	 * posts. Meant to be called repeatedly by a chained
+	 * wp_schedule_single_event tick rather than in a loop over the full
+	 * queue, so each PHP request only makes a handful of embedding API
+	 * calls.
+	 *
+	 * @param int $batch_size Number of posts to process this call.
+	 * @return array ['remaining' => int, 'indexed' => int, 'failed' => int]
+	 */
+	public function process_index_batch($batch_size = 5)
+	{
+		if (!$this->acquire_index_lock()) {
+			// Another tick is actively writing the queue right now — skip
+			// this run untouched; the caller's existing "remaining > 0"
+			// reschedule logic will simply retry a few seconds later.
+			return [
+				'remaining' => count((array) json_decode((string) $this->get_metadata('index_queue', '[]'), true)),
+				'indexed' => 0,
+				'failed' => 0,
+			];
+		}
+
+		try {
+			$queue = json_decode((string) $this->get_metadata('index_queue', '[]'), true);
+
+			if (!is_array($queue)) {
+				$queue = [];
+			}
+
+			$batch = array_splice($queue, 0, max(1, (int) $batch_size));
+
+			$indexed = 0;
+			$failed = 0;
+
+			foreach ($batch as $post_id) {
+
+				$post = get_post((int) $post_id);
+
+				if (!$post) {
+					continue;
+				}
+
+				try {
+					if ($this->index_post($post)) {
+						$indexed++;
+					} else {
+						$failed++;
+					}
+				} catch (Exception $e) {
+					$failed++;
+				}
+			}
+
+			$this->update_metadata('index_queue', wp_json_encode($queue));
+			$this->update_metadata('index_processed', (int) $this->get_metadata('index_processed', 0) + count($batch));
+			$this->update_metadata('index_indexed', (int) $this->get_metadata('index_indexed', 0) + $indexed);
+			$this->update_metadata('index_failed', (int) $this->get_metadata('index_failed', 0) + $failed);
+
+			$remaining = count($queue);
+
+			if (0 === $remaining) {
+				$this->update_metadata('index_status', 'embedding');
+				$this->update_metadata('embed_total', $this->count_pending_embeddings());
+				$this->update_metadata('embed_processed', 0);
+				$this->update_metadata('embed_failed', 0);
+				$this->update_metadata('last_index_time', current_time('mysql'));
+			}
+
+			return [
+				'remaining' => $remaining,
+				'indexed' => $indexed,
+				'failed' => $failed,
+			];
+		} finally {
+			$this->release_index_lock();
+		}
+	}
+
+	/**
+	 * Get Index Progress
+	 *
+	 * Snapshot of the current (or most recent) background indexing job,
+	 * used by the dashboard to poll and render progress.
+	 *
+	 * @return array
+	 */
+	public function get_index_progress()
+	{
+		return [
+			'status' => (string) $this->get_metadata('index_status', 'idle'),
+			'docs_total' => (int) $this->get_metadata('index_total', 0),
+			'docs_processed' => (int) $this->get_metadata('index_processed', 0),
+			'docs_indexed' => (int) $this->get_metadata('index_indexed', 0),
+			'docs_failed' => (int) $this->get_metadata('index_failed', 0),
+			'embed_total' => (int) $this->get_metadata('embed_total', 0),
+			'embed_processed' => (int) $this->get_metadata('embed_processed', 0),
+			'embed_failed' => (int) $this->get_metadata('embed_failed', 0),
+			'last_index_start' => (string) $this->get_metadata('last_index_start', ''),
+			'last_index_time' => (string) $this->get_metadata('last_index_time', ''),
+		];
 	}
 }

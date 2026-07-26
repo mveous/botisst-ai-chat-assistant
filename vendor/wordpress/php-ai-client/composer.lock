@@ -3717,65 +3717,6 @@
             "time": "2025-11-17T20:03:58+00:00"
         },
         {
-            "name": "wordpress/anthropic-ai-provider",
-            "version": "1.0.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/WordPress/anthropic-ai-provider.git",
-                "reference": "7abfab9d10f13c2c713484e3f5f096f81ad84b61"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/WordPress/anthropic-ai-provider/zipball/7abfab9d10f13c2c713484e3f5f096f81ad84b61",
-                "reference": "7abfab9d10f13c2c713484e3f5f096f81ad84b61",
-                "shasum": ""
-            },
-            "require": {
-                "php": ">=7.4"
-            },
-            "require-dev": {
-                "dealerdirect/phpcodesniffer-composer-installer": "^1.0",
-                "phpcompatibility/php-compatibility": "dev-develop",
-                "phpstan/phpstan": "~2.1",
-                "slevomat/coding-standard": "^8.20",
-                "squizlabs/php_codesniffer": "^3.7 || ^4.0",
-                "wordpress/php-ai-client": "^0.4 || dev-trunk"
-            },
-            "suggest": {
-                "wordpress/php-ai-client": "Required. The core PHP AI Client SDK that this provider extends."
-            },
-            "type": "wordpress-plugin",
-            "autoload": {
-                "psr-4": {
-                    "WordPress\\AnthropicAiProvider\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "GPL-2.0-or-later"
-            ],
-            "authors": [
-                {
-                    "name": "WordPress AI Team",
-                    "homepage": "https://make.wordpress.org/ai/"
-                }
-            ],
-            "description": "Anthropic AI provider for the PHP AI Client SDK. Works as both a Composer package and WordPress plugin.",
-            "homepage": "https://github.com/WordPress/anthropic-ai-provider",
-            "keywords": [
-                "ai",
-                "anthropic",
-                "claude",
-                "llm",
-                "wordpress"
-            ],
-            "support": {
-                "issues": "https://github.com/WordPress/anthropic-ai-provider/issues",
-                "source": "https://github.com/WordPress/anthropic-ai-provider"
-            },
-            "time": "2026-02-12T05:24:09+00:00"
-        },
-        {
             "name": "wordpress/google-ai-provider",
             "version": "1.0.0",
             "source": {

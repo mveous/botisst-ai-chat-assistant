@@ -1,5 +1,5 @@
 import { useEffect, useState } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
 const PROVIDERS = {
@@ -10,10 +10,6 @@ const PROVIDERS = {
 	google: {
 		name: __('Google Gemini', 'botisst-ai-chat-assistant'),
 		link: 'https://aistudio.google.com/api-keys',
-	},
-	anthropic: {
-		name: __('Anthropic', 'botisst-ai-chat-assistant'),
-		link: 'https://platform.claude.com/settings/keys',
 	},
 };
 
@@ -43,17 +39,43 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 	const [busy, setBusy] = useState(false);
 
 	const getInitialProvider = () => {
+		if (settings?.chatbot?.default_provider) {
+			return settings.chatbot.default_provider;
+		}
 		if (settings?.api_keys?.openai) return 'openai';
 		if (settings?.api_keys?.google) return 'google';
-		if (settings?.api_keys?.anthropic) return 'anthropic';
-		return settings?.chatbot?.default_provider || 'openai';
+		return 'openai';
 	};
 
 	const [selectedProvider, setSelectedProvider] = useState(getInitialProvider);
+	const hasSavedApiKey = !!settings?.api_keys?.[selectedProvider];
 	const [apiKey, setApiKey] = useState(() => settings?.api_keys?.[getInitialProvider()] || '');
 
+	const getPreferredEmbeddingProvider = (currentSettings = settings) => {
+		const apiKeys = currentSettings?.api_keys || {};
+		const savedEmbeddingProvider = currentSettings?.rag?.embeddings?.provider;
+
+		if (savedEmbeddingProvider) {
+			return savedEmbeddingProvider;
+		}
+
+		if (currentSettings?.chatbot?.default_provider) {
+			return currentSettings.chatbot.default_provider;
+		}
+
+		if (apiKeys.google && !apiKeys.openai) {
+			return 'google';
+		}
+
+		if (apiKeys.openai && !apiKeys.google) {
+			return 'openai';
+		}
+
+		return 'openai';
+	};
+
 	const [vectorDb, setVectorDb] = useState(() => settings?.rag?.vector_db?.provider || 'sqlite');
-	const [embeddingProvider, setEmbeddingProvider] = useState(() => settings?.rag?.embeddings?.provider || 'openai');
+	const [embeddingProvider, setEmbeddingProvider] = useState(() => getPreferredEmbeddingProvider(settings));
 	const [pineconeApiKey, setPineconeApiKey] = useState(() => settings?.rag?.vector_db?.api_key || '');
 	const [pineconeHost, setPineconeHost] = useState(() => settings?.rag?.vector_db?.host || '');
 	const [pineconeIndexName, setPineconeIndexName] = useState(() => settings?.rag?.vector_db?.index_name || '');
@@ -74,7 +96,7 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 		setApiKey(settings?.api_keys?.[initialProvider] || '');
 
 		setVectorDb(settings?.rag?.vector_db?.provider || 'sqlite');
-		setEmbeddingProvider(settings?.rag?.embeddings?.provider || 'openai');
+		setEmbeddingProvider(getPreferredEmbeddingProvider(settings));
 		setPineconeApiKey(settings?.rag?.vector_db?.api_key || '');
 		setPineconeHost(settings?.rag?.vector_db?.host || '');
 		setPineconeIndexName(settings?.rag?.vector_db?.index_name || '');
@@ -85,7 +107,12 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 			.catch(() => { });
 
 		return () => document.body.classList.remove('baca-modal-open');
-	}, [open, settings]);
+		// Intentionally only [open]: this should initialize the wizard's
+		// fields once when it opens, not keep re-syncing (and clobbering
+		// in-progress edits) every time settings changes while it's open —
+		// each step already saves its own local state via onSave().
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [open]);
 
 	if (!open) {
 		return null;
@@ -108,25 +135,33 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 			return;
 		}
 
+		setEmbeddingProvider(selectedProvider);
+
 		if (settings?.api_keys?.[selectedProvider] && apiKey === settings.api_keys[selectedProvider]) {
-			changeStep(2);
-			return;
+			if (settings?.chatbot?.default_provider === selectedProvider) {
+				changeStep(2);
+				return;
+			}
 		}
 
 		setBusy(true);
 		try {
-			await apiFetch({
+			const data = {
+				default_provider: selectedProvider,
+			};
+			if (apiKey !== settings?.api_keys?.[selectedProvider]) {
+				data[`${selectedProvider}_key`] = apiKey;
+			}
+
+			const response = await apiFetch({
 				path: '/baca/v1/save-settings',
 				method: 'POST',
-				data: { [`${selectedProvider}_key`]: apiKey },
+				data,
 			});
 
-			const maskedKey = apiKey.length < 8
-				? '********'
-				: apiKey.slice(0, 4) + '...' + apiKey.slice(-4);
-
 			onSave({
-				api_keys: { ...settings?.api_keys, [selectedProvider]: maskedKey },
+				api_keys: response.api_keys || {},
+				chatbot: response.chatbot || {},
 			});
 			changeStep(2);
 		} catch (error) {
@@ -272,12 +307,12 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 		__('Connect an AI provider', 'botisst-ai-chat-assistant'),
 		__('Choose vector database', 'botisst-ai-chat-assistant'),
 		__('Pinecone settings', 'botisst-ai-chat-assistant'),
-		__('Content to embed', 'botisst-ai-chat-assistant'),
+		__('Content for Your Chatbot', 'botisst-ai-chat-assistant'),
 		__('Add chatbot knowledge', 'botisst-ai-chat-assistant'),
 	] : [
 		__('Connect an AI provider', 'botisst-ai-chat-assistant'),
 		__('Choose vector database', 'botisst-ai-chat-assistant'),
-		__('Content to embed', 'botisst-ai-chat-assistant'),
+		__('Content for Your Chatbot', 'botisst-ai-chat-assistant'),
 		__('Add chatbot knowledge', 'botisst-ai-chat-assistant'),
 	];
 
@@ -308,7 +343,7 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 				{__('Connect an AI provider', 'botisst-ai-chat-assistant')}
 			</h2>
 			<p className="baca-wizard-step-desc">
-				{__('Pick the AI provider you want to power your chatbot, then paste in its API key. This step is required to continue.', 'botisst-ai-chat-assistant')}
+				{__('Choose an AI provider and enter your API key to continue.', 'botisst-ai-chat-assistant')}
 			</p>
 
 			<div className="baca-bot-field">
@@ -323,6 +358,7 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 						const newProvider = e.target.value;
 						setSelectedProvider(newProvider);
 						setApiKey(settings?.api_keys?.[newProvider] || '');
+						setEmbeddingProvider(newProvider);
 					}}
 				>
 					{Object.entries(PROVIDERS).map(([id, provider]) => (
@@ -342,6 +378,7 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 					value={apiKey}
 					onChange={(e) => setApiKey(e.target.value)}
 					placeholder={__('Paste your API key here', 'botisst-ai-chat-assistant')}
+					disabled={hasSavedApiKey}
 				/>
 				<a
 					href={PROVIDERS[selectedProvider].link}
@@ -362,10 +399,10 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 		return (
 			<>
 				<h2 className="baca-wizard-step-title">
-					{__('Choose your vector database', 'botisst-ai-chat-assistant')}
+					{__('Choose your database', 'botisst-ai-chat-assistant')}
 				</h2>
 				<p className="baca-wizard-step-desc">
-					{__('This is where your knowledge base embeddings are stored for semantic search.', 'botisst-ai-chat-assistant')}
+					{__('Your knowledge base is stored here so the AI can quickly search and use it when answering questions.', 'botisst-ai-chat-assistant')}
 				</p>
 
 				<div className="baca-kb-db-options">
@@ -388,9 +425,29 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 				</div>
 
 				<div className="baca-bot-field" style={{ marginTop: '1.5rem' }}>
-					<label htmlFor="wizard_embedding_provider">
-						{__('Embedding Provider', 'botisst-ai-chat-assistant')}
-					</label>
+					<div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.375rem' }}>
+						<label htmlFor="wizard_embedding_provider" style={{ marginBottom: 0 }}>
+							{__('Embedding Provider', 'botisst-ai-chat-assistant')}
+						</label>
+						{vectorDb === 'pinecone' && (
+							<div className="baca-info-tooltip-wrapper">
+								<button
+									type="button"
+									className="baca-info-btn"
+									aria-label={__('Dimensions info', 'botisst-ai-chat-assistant')}
+								>
+									i
+								</button>
+								<div className="baca-info-tooltip">
+									{sprintf(
+										__('Because you selected %1$s, your Pinecone index must be created with exactly %2$d dimensions.', 'botisst-ai-chat-assistant'),
+										embeddingProvider === 'google' ? __('Google Gemini (gemini-embedding-001)', 'botisst-ai-chat-assistant') : __('OpenAI (text-embedding-3-small)', 'botisst-ai-chat-assistant'),
+										embeddingProvider === 'google' ? 768 : 1536
+									)}
+								</div>
+							</div>
+						)}
+					</div>
 					<select
 						id="wizard_embedding_provider"
 						className="baca-bot-select"
@@ -422,65 +479,81 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 		);
 	};
 
-	const renderPineconeStep = () => (
-		<>
-			<h2 className="baca-wizard-step-title">
-				{__('Pinecone Settings', 'botisst-ai-chat-assistant')}
-			</h2>
-			<p className="baca-wizard-step-desc">
-				{__('Configure your Pinecone connection details below.', 'botisst-ai-chat-assistant')}
-			</p>
+	const renderPineconeStep = () => {
+		const currentDimensions = embeddingProvider === 'google' ? 768 : 1536;
+		const currentProviderName = embeddingProvider === 'google' ? __('Google Gemini', 'botisst-ai-chat-assistant') : __('OpenAI', 'botisst-ai-chat-assistant');
 
-			<div className="baca-bot-field">
-				<label htmlFor="wizard_pinecone_key">
-					{__('Pinecone API Key', 'botisst-ai-chat-assistant')}
-				</label>
-				<input
-					type="password"
-					id="wizard_pinecone_key"
-					className="baca-bot-input"
-					value={pineconeApiKey}
-					onChange={(e) => setPineconeApiKey(e.target.value)}
-					placeholder="pcsk_..."
-				/>
-			</div>
-			<div className="baca-bot-field">
-				<label htmlFor="wizard_pinecone_host">
-					{__('Pinecone Host', 'botisst-ai-chat-assistant')}
-				</label>
-				<input
-					type="text"
-					id="wizard_pinecone_host"
-					className="baca-bot-input"
-					value={pineconeHost}
-					onChange={(e) => setPineconeHost(e.target.value)}
-					placeholder="https://index-xxxxx.svc.aped-4627-b74a.pinecone.io"
-				/>
-				<a
-					href="https://app.pinecone.io/"
-					className="baca-api-help-link"
-					target="_blank"
-					rel="noopener noreferrer"
-				>
-					{__('Find your Pinecone API details and host URL here', 'botisst-ai-chat-assistant')}
-					<span className="dashicons dashicons-external" aria-hidden="true" />
-				</a>
-			</div>
-			<div className="baca-bot-field">
-				<label htmlFor="wizard_pinecone_index">
-					{__('Index Name', 'botisst-ai-chat-assistant')}
-				</label>
-				<input
-					type="text"
-					id="wizard_pinecone_index"
-					className="baca-bot-input"
-					value={pineconeIndexName}
-					onChange={(e) => setPineconeIndexName(e.target.value)}
-					placeholder={__('e.g. botisst-index', 'botisst-ai-chat-assistant')}
-				/>
-			</div>
-		</>
-	);
+		return (
+			<>
+				<h2 className="baca-wizard-step-title">
+					{__('Pinecone Settings', 'botisst-ai-chat-assistant')}
+				</h2>
+				<p className="baca-wizard-step-desc">
+					{__('Configure your Pinecone connection details below.', 'botisst-ai-chat-assistant')}
+				</p>
+
+				<div className="baca-kb-info-block" style={{ marginBottom: '1.25rem' }}>
+					<p style={{ margin: 0 }}>
+						<strong>{__('Important Pinecone Index Requirement:', 'botisst-ai-chat-assistant')}</strong>{' '}
+						{sprintf(
+							__('Because you are using %1$s, you must create your Pinecone index with exactly %2$d dimensions.', 'botisst-ai-chat-assistant'),
+							currentProviderName,
+							currentDimensions
+						)}
+					</p>
+				</div>
+
+				<div className="baca-bot-field">
+					<label htmlFor="wizard_pinecone_key">
+						{__('Pinecone API Key', 'botisst-ai-chat-assistant')}
+					</label>
+					<input
+						type="password"
+						id="wizard_pinecone_key"
+						className="baca-bot-input"
+						value={pineconeApiKey}
+						onChange={(e) => setPineconeApiKey(e.target.value)}
+						placeholder="pcsk_..."
+					/>
+				</div>
+				<div className="baca-bot-field">
+					<label htmlFor="wizard_pinecone_host">
+						{__('Pinecone Host', 'botisst-ai-chat-assistant')}
+					</label>
+					<input
+						type="text"
+						id="wizard_pinecone_host"
+						className="baca-bot-input"
+						value={pineconeHost}
+						onChange={(e) => setPineconeHost(e.target.value)}
+						placeholder="https://index-xxxxx.svc.aped-4627-b74a.pinecone.io"
+					/>
+					<a
+						href="https://app.pinecone.io/"
+						className="baca-api-help-link"
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						{__('Find your Pinecone API details and host URL here', 'botisst-ai-chat-assistant')}
+						<span className="dashicons dashicons-external" aria-hidden="true" />
+					</a>
+				</div>
+				<div className="baca-bot-field">
+					<label htmlFor="wizard_pinecone_index">
+						{__('Index Name', 'botisst-ai-chat-assistant')}
+					</label>
+					<input
+						type="text"
+						id="wizard_pinecone_index"
+						className="baca-bot-input"
+						value={pineconeIndexName}
+						onChange={(e) => setPineconeIndexName(e.target.value)}
+						placeholder={__('e.g. botisst-index', 'botisst-ai-chat-assistant')}
+					/>
+				</div>
+			</>
+		);
+	};
 
 	const renderStepThree = () => (
 		<>
@@ -488,7 +561,7 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 				{__('Add what your bot should know', 'botisst-ai-chat-assistant')}
 			</h2>
 			<p className="baca-wizard-step-desc">
-				{__('Add facts, FAQs, or company info the chatbot can use when answering. You can add URLs, files, and full site indexing later in the Knowledge Base tab.', 'botisst-ai-chat-assistant')}
+				{__('Add facts, FAQs, or company information for your chatbot. You can add more content later in the Knowledge Base.', 'botisst-ai-chat-assistant')}
 			</p>
 
 			<div className="baca-bot-field">
@@ -510,10 +583,10 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 	const renderPostTypesStep = () => (
 		<>
 			<h2 className="baca-wizard-step-title">
-				{__('Content to embed', 'botisst-ai-chat-assistant')}
+				{__('Content for Your Chatbot', 'botisst-ai-chat-assistant')}
 			</h2>
 			<p className="baca-wizard-step-desc">
-				{__('Select which WordPress content types to index and convert to vector embeddings. The bot will use these to answer user questions.', 'botisst-ai-chat-assistant')}
+				{__('Choose which WordPress content the chatbot can use to answer questions.', 'botisst-ai-chat-assistant')}
 			</p>
 
 			<div className="baca-kb-post-types" style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -643,30 +716,37 @@ export default function SetupWizard({ open, settings, onSave, onClose, showNotic
 							<button
 								type="button"
 								className="baca-btn baca-btn-primary"
-								onClick={onClose}
+								onClick={() => {
+									if (window.location.href.includes('page=baca')) {
+										onClose();
+									} else {
+										window.location.href = 'admin.php?page=baca';
+									}
+								}}
 							>
-								{__('Go to dashboard', 'botisst-ai-chat-assistant')}
+								{__('Go to Settings', 'botisst-ai-chat-assistant')}
 							</button>
 						</>
 					) : (
 						<>
-							{step === 1 ? (
-								<span />
-							) : (
-								<button
-									type="button"
-									className="baca-bot-link baca-wizard-skip"
-									onClick={handleSkip}
-									disabled={busy}
-								>
-									{__('Skip for now', 'botisst-ai-chat-assistant')}
-								</button>
-							)}
+							<button
+								type="button"
+								className="baca-bot-link baca-wizard-skip"
+								onClick={handleSkip}
+								disabled={busy}
+							>
+								{__('Skip for now', 'botisst-ai-chat-assistant')}
+							</button>
 							<button
 								type="button"
 								className="baca-btn baca-btn-primary"
 								onClick={handleNextClick}
-								disabled={busy || (step === 2 && !settings?.api_keys?.[embeddingProvider])}
+								disabled={
+									busy ||
+									(step === 1 && !apiKey.trim()) ||
+									(step === 2 && !settings?.api_keys?.[embeddingProvider]) ||
+									(vectorDb === 'pinecone' && step === 3 && (!pineconeApiKey.trim() || !pineconeHost.trim() || !pineconeIndexName.trim()))
+								}
 							>
 								{busy
 									? <span className="baca-spinner" aria-hidden="true" />

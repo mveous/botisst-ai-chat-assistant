@@ -79,11 +79,6 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 			? untrailingslashit($config['host'])
 			: '';
 
-		if (empty($this->base_url)) {
-			error_log(
-				'Pinecone Error: Host URL missing.'
-			);
-		}
 	}
 
 	/**
@@ -136,6 +131,7 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 
 		// Update chunk status in database
 		$chunks_table = esc_sql($wpdb->prefix . 'baca_rag_chunks');
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct update to custom table.
 		$wpdb->update(
 			$chunks_table,
 			[
@@ -190,9 +186,8 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 	private function upsert_vectors($vectors)
 	{
 		$url = $this->base_url . '/vectors/upsert';
-		$response = wp_remote_post($url, ['headers' => ['Api-Key' => $this->api_key, 'Content-Type' => 'application/json', 'X-Pinecone-API-Version' => '2025-10',], 'body' => wp_json_encode(['vectors' => $vectors, 'namespace' => 'default',]), 'timeout' => 60,]);
+		$response = wp_safe_remote_post($url, ['headers' => ['Api-Key' => $this->api_key, 'Content-Type' => 'application/json', 'X-Pinecone-API-Version' => '2025-10',], 'body' => wp_json_encode(['vectors' => $vectors, 'namespace' => 'default',]), 'timeout' => 60,]);
 		if (is_wp_error($response)) {
-			error_log('Pinecone Error: ' . $response->get_error_message());
 			return $response;
 		}
 		$status_code = wp_remote_retrieve_response_code($response);
@@ -208,7 +203,7 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 
 		$url = $this->base_url . '/query';
 
-		$response = wp_remote_post(
+		$response = wp_safe_remote_post(
 			$url,
 			[
 				'headers' => [
@@ -229,12 +224,6 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 		);
 
 		if (is_wp_error($response)) {
-
-			error_log(
-				'Pinecone Search Error: ' .
-				$response->get_error_message()
-			);
-
 			return [];
 		}
 
@@ -244,14 +233,6 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 			);
 
 		if ($status_code < 200 || $status_code >= 300) {
-
-			error_log(
-				'Pinecone Search Failed: ' .
-				wp_remote_retrieve_body(
-					$response
-				)
-			);
-
 			return [];
 		}
 
@@ -290,7 +271,7 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 	{
 		$url = $this->base_url . '/vectors/fetch?ids=' . urlencode($chunk_id);
 
-		$response = wp_remote_get(
+		$response = wp_safe_remote_get(
 			$url,
 			[
 				'headers' => [
@@ -325,7 +306,7 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 
 		$url = $this->base_url . '/vectors/delete';
 
-		$response = wp_remote_post(
+		$response = wp_safe_remote_post(
 			$url,
 			[
 				'headers' => [
@@ -347,6 +328,7 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 
 		// Update chunk status in database
 		$chunks_table = esc_sql($wpdb->prefix . 'baca_rag_chunks');
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Direct update to custom table.
 		$wpdb->update(
 			$chunks_table,
 			[
@@ -371,7 +353,7 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 	{
 		$url = $this->base_url . '/vectors/delete';
 
-		$response = wp_remote_post(
+		$response = wp_safe_remote_post(
 			$url,
 			[
 				'headers' => [
@@ -406,7 +388,7 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 			$this->base_url .
 			'/describe_index_stats';
 
-		$response = wp_remote_post(
+		$response = wp_safe_remote_post(
 			$url,
 			[
 				'headers' => [
@@ -451,6 +433,7 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 					return new WP_Error(
 						'pinecone_dimension_mismatch',
 						sprintf(
+							/* translators: %1$d: Pinecone index dimensions, %2$s: Provider name, %3$d: Expected dimensions. */
 							__('Pinecone index dimension mismatch! Your Pinecone index has %1$d dimensions, but your selected AI provider (%2$s) requires %3$d dimensions. Please recreate your Pinecone index with exactly %3$d dimensions.', 'botisst-ai-chat-assistant'),
 							(int) $data['dimension'],
 							$provider_name,
@@ -499,7 +482,7 @@ class BACA_Vector_DB_Pinecone extends BACA_Vector_DB_Base
 	{
 		$url = $this->base_url . '/describe_index_stats';
 
-		$response = wp_remote_post(
+		$response = wp_safe_remote_post(
 			$url,
 			[
 				'headers' => [
