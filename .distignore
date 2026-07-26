@@ -23,8 +23,7 @@ webpack.config.js
 gulpfile.js
 package.json
 package-lock.json
-gulpfile.js
-webpack.config.js
 /dist/
 /.wordpress-org
 .distignore
+README.md
