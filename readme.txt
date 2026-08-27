@@ -2,8 +2,8 @@
 Contributors: lionecoders, deep7197, mveous
 Tags: chatbot, ai chatbot, wordpress chatbot, chatgpt, openai, gemini, ai assistant, customer support, live chat, rag
 Requires at least: 6.9
-Tested up to: 7.0
-Stable tag: 1.0.0
+Tested up to: 7.1
+Stable tag: 1.0.1
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -93,6 +93,8 @@ If you'd like to learn more about how OpenAI and Google handle data, check out t
 3. Botisst Chat Widget on front-end.
 
 == Changelog ==
+= 1.0.1 =
+* Add setting to change bot placeholder.
 
 = 1.0.0 =
 * Initial stable release.
