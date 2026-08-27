@@ -574,6 +574,7 @@ class BACA_Settings_Handler
 			'trigger_type' => isset($params['trigger_type']) ? sanitize_text_field($params['trigger_type']) : 'click',
 			'trigger_delay' => isset($params['trigger_delay']) ? intval($params['trigger_delay']) : 5,
 			'launcher_text' => isset($params['launcher_text']) ? sanitize_text_field($params['launcher_text']) : 'Chat with us',
+			'placeholder_text' => isset($params['placeholder_text']) ? sanitize_text_field($params['placeholder_text']) : '',
 		];
 
 		$settings = self::baca_get_all_settings();

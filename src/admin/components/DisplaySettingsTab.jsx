@@ -18,6 +18,7 @@ export default function DisplaySettingsTab( { settings, onSave, showNotice } ) {
 		exclude_pages: display.exclude_pages || '',
 		position: display.position || 'bottom-right',
 		launcher_text: display.launcher_text || '',
+		placeholder_text: display.placeholder_text || '',
 		trigger_type: display.trigger_type || 'click',
 		trigger_delay: display.trigger_delay ?? 5,
 	} );
@@ -178,6 +179,20 @@ export default function DisplaySettingsTab( { settings, onSave, showNotice } ) {
 							value={ formData.launcher_text }
 							onChange={ ( e ) => handleChange( 'launcher_text', e.target.value ) }
 							placeholder={ __( 'How can we help?', 'botisst-ai-chat-assistant' ) }
+						/>
+					</div>
+
+					<div className="baca-bot-field">
+						<label htmlFor="placeholder_text">
+							{ __( 'Input Placeholder Text', 'botisst-ai-chat-assistant' ) }
+						</label>
+						<input
+							type="text"
+							id="placeholder_text"
+							className="baca-bot-input"
+							value={ formData.placeholder_text }
+							onChange={ ( e ) => handleChange( 'placeholder_text', e.target.value ) }
+							placeholder={ __( 'Type a message...', 'botisst-ai-chat-assistant' ) }
 						/>
 					</div>
 

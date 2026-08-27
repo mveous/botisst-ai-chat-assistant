@@ -16,11 +16,13 @@ const SAMPLE_BOT_REPLY = __(
 
 export default function ChatPreviewTab( { settings } ) {
 	const botSettings = settings?.chatbot || {};
+	const displaySettings = settings?.display || {};
 	const primaryColor = botSettings.primary_color || '#6366f1';
 	const botName = botSettings.bot_name || __( 'Botisst', 'botisst-ai-chat-assistant' );
 	const greetingMsg =
 		botSettings.greeting_msg ||
 		__( 'Hello! I am your AI assistant. How can I help you today?', 'botisst-ai-chat-assistant' );
+	const placeholderText = displaySettings.placeholder_text || __( 'Type a message…', 'botisst-ai-chat-assistant' );
 	const bubbleClass = `baca-preview-widget--${ botSettings.bubble_style || 'rounded' }`;
 	const avatarSrc = botSettings.bot_avatar || '';
 	const avatarInitial = botName.trim().charAt( 0 ).toUpperCase() || 'B';
@@ -97,7 +99,7 @@ export default function ChatPreviewTab( { settings } ) {
 						<input
 							type="text"
 							className="baca-preview-widget__input"
-							placeholder={ __( 'Type a message…', 'botisst-ai-chat-assistant' ) }
+							placeholder={ placeholderText }
 							disabled
 							aria-label={ __( 'Message input', 'botisst-ai-chat-assistant' ) }
 						/>

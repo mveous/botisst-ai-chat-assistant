@@ -400,7 +400,7 @@ export default function ChatWidget({ settings, inline }) {
                                         handleSend(e);
                                     }
                                 }}
-                                placeholder={__('Type a message...', 'botisst-ai-chat-assistant')}
+                                placeholder={disp.placeholder_text || __('Type a message...', 'botisst-ai-chat-assistant')}
                                 rows={1}
                                 disabled={isTyping}
                                 style={{ resize: 'none', overflowY: 'auto', minHeight: '44px', lineHeight: '20px', padding: '12px 20px', boxSizing: 'border-box' }}
