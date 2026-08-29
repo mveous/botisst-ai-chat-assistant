@@ -1,6 +1,6 @@
 === Botisst – AI Chatbot & Assistant ===
 Contributors: lionecoders, deep7197, mveous
-Tags: chatbot, ai chatbot, wordpress chatbot, chatgpt, openai, gemini, ai assistant, customer support, live chat, rag
+Tags: chatbot, ai chatbot, wordpress chatbot, ai assistant, customer support
 Requires at least: 6.9
 Tested up to: 7.1
 Stable tag: 1.0.1
@@ -8,7 +8,7 @@ Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-AI chatbot for WordPress powered by OpenAI and Google Gemini. Train it with your website knowledge base using built-in RAG to answer visitor questions.
+Botisst is a feature-rich AI chatbot plugin for WordPress that lets you customize your AI assistant’s appearance, behavior, and knowledge.
 
 == Description ==
 
