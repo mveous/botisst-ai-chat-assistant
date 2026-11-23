@@ -1,8 +1,8 @@
 === Botisst – AI Chatbot & Assistant ===
-Contributors: lionecoders, deep7197, mveous
+Contributors: deep7197, mveous
 Tags: chatbot, ai chatbot, wordpress chatbot, ai assistant, customer support
 Requires at least: 6.9
-Tested up to: 7.1
+Tested up to: 7.1.5
 Stable tag: 1.0.1
 Requires PHP: 7.4
 License: GPLv2 or later
@@ -93,8 +93,12 @@ If you'd like to learn more about how OpenAI and Google handle data, check out t
 3. Botisst Chat Widget on front-end.
 
 == Changelog ==
+
+= 1.0.2 =
+* Improved: Minor code improvements.
+
 = 1.0.1 =
-* Add setting to change bot placeholder.
+* Improved: Add setting to change bot placeholder.
 
 = 1.0.0 =
 * Initial stable release.

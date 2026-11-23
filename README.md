@@ -72,6 +72,10 @@ If you'd like to learn more about how OpenAI and Google handle data, check out t
 ---
 
 ## Changelog
+
+### 1.0.2
+* Improved: Minor code improvements.
+
 ### 1.0.1
 * Add setting to change bot placeholder.
 

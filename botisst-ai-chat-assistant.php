@@ -3,7 +3,7 @@
  * Plugin Name: Botisst - AI Chat Assistant
  * Plugin URI: https://mveous.com
  * Description: Botisst is a feature-rich AI chatbot plugin for WordPress that lets you customize your AI assistant’s appearance, behavior, and knowledge.
- * Version: 1.0.1
+ * Version: 1.0.2
  * Author: Mveous
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
