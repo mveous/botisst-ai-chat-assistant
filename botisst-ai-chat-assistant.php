@@ -20,7 +20,7 @@ if (!defined('ABSPATH')) {
 /**
  * Define Core Constants
  */
-define('BACA_VERSION', '1.0.1');
+define('BACA_VERSION', '1.0.2');
 define('BACA_FILE', __FILE__);
 define('BACA_PATH', plugin_dir_path(BACA_FILE));
 define('BACA_URL', plugin_dir_url(BACA_FILE));
